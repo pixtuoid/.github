@@ -12,8 +12,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # claude-review.yml gates every org repo that calls it, so its own lint
-  # gates this repo's merges.
+  # The workflows and actions here run in every org repo that calls them, so
+  # their lint and tests gate this repo's merges.
   workflows:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -33,3 +33,4 @@ jobs:
       - run: |
           go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
           "$(go env GOPATH)/bin/actionlint"
+      - run: bash .github/actions/setup-rust/test.sh
