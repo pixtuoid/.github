@@ -6,8 +6,10 @@ name: claude-review
 on:
   workflow_call:
     secrets:
+      # A fork's or Dependabot's caller passes it empty; the job's `if:`
+      # skips those runs, which a required secret could fail first.
       CLAUDE_CODE_OAUTH_TOKEN:
-        required: true
+        required: false
 
 permissions: {}
 
