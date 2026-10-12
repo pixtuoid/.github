@@ -15,12 +15,14 @@ permissions: {}
 
 jobs:
   claude-review:
-    # A fork's run gets no secret, nor does Dependabot's, and the action refuses
-    # any bot actor. A skipped job reports success to a required check, so such
-    # a PR is a human's merge.
+    # A fork's run gets no secret, nor does Dependabot's, and a skipped job
+    # reports success to a required check, so such a PR is a human's merge. The
+    # PR's author decides, not `github.actor`, the last pusher: a bot's push
+    # onto a human's PR runs the job, which then fails closed, since the action
+    # refuses a non-User actor (src/github/validation/actor.ts).
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository
-      && !endsWith(github.actor, '[bot]')
+      && github.event.pull_request.user.type != 'Bot'
       && !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 30
