@@ -21,15 +21,17 @@ for action in "${actions[@]}"; do
         # pwsh/python are not shellcheck's to judge, but a bounded gate that
         # does not name what it dropped reads as full coverage.
         *)
-            skipped+=("$action step $i ($shell)")
+            skipped+=("$action run step $i ($shell)")
             continue
             ;;
         esac
         script="$work/$(echo "$action" | tr /. __)-$i.$shell"
         { echo "#!/usr/bin/env $shell"; yq -r ".runs.steps | map(select(has(\"run\"))) | .[$i].run" "$action"; } >"$script"
-        shellcheck -s "$shell" "$script" || { echo "  ^ from $action step $i" >&2; exit 1; }
+        shellcheck -s "$shell" "$script" || { echo "  ^ from $action run step $i" >&2; exit 1; }
         checked=$((checked + 1))
     done
 done
 ((checked > 0)) || { echo "error: no composite run: blocks were checked" >&2; exit 1; }
 echo "$checked composite run: blocks shellchecked"
+((${#skipped[@]})) && printf '  skipped (not a shellcheck dialect): %s\n' "${skipped[@]}"
+exit 0
