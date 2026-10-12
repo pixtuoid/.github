@@ -33,5 +33,6 @@ jobs:
       - run: |
           go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
           "$(go env GOPATH)/bin/actionlint"
+      - run: bash .github/scripts/shellcheck-composites.sh
       - run: bash .github/actions/setup-rust/test.sh
       - run: bash .github/actions/require-jobs/test.sh
