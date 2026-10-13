@@ -1,7 +1,9 @@
 version: 2
 updates:
   - package-ecosystem: github-actions
-    directory: /
+    # `/` alone scans only workflows; `/.github/actions/*`, never
+    # `.../action.yml`, adds the composites (dependabot-core#6704).
+    directories: ["/", "/.github/actions/*"]
     schedule:
       interval: weekly
     groups:
