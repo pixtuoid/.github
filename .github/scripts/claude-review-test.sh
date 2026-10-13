@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+# claude-review.yml's scope step against fixed API pages; run from the repo root.
+set -euo pipefail
+
+fail() {
+    echo "claude-review test: $*" >&2
+    exit 1
+}
+
+WORKFLOW_FILE="${CLAUDE_REVIEW_WORKFLOW_FILE:-.github/workflows/claude-review.yml}"
+step='.jobs.claude-review.steps[] | select(.id == "scope")'
+script="$(yq -e -r "$step | .run" "$WORKFLOW_FILE")"
+verdicts_jq="$(yq -e -r "$step | .env.VERDICTS" "$WORKFLOW_FILE")"
+comment_jq="$(yq -e -r "$step | .env.COMMENT" "$WORKFLOW_FILE")"
+
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+
+# Serves $PAGES/<kind>.<n>.json in page order, each through --jq as gh does,
+# and only page 1 without --paginate; anything else is a call the step must
+# not make.
+gh() {
+    local paginate=false path="" expr="" kind
+    [[ "${1:-}" == api ]] || { echo "gh stub: unexpected: $*" >&2; return 1; }
+    shift
+    while (($#)); do
+        case "$1" in
+        --paginate) paginate=true ;;
+        --jq) expr="$2"; shift ;;
+        -*) echo "gh stub: unexpected flag $1" >&2; return 1 ;;
+        *) path="$1" ;;
+        esac
+        shift
+    done
+    case "$path" in
+    "repos/$GITHUB_REPOSITORY/pulls/$PR/commits?per_page=100") kind=commits ;;
+    "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews?per_page=100") kind=reviews ;;
+    "repos/$GITHUB_REPOSITORY/pulls/$PR/comments?per_page=100") kind=comments ;;
+    *) echo "gh stub: unexpected path $path" >&2; return 1 ;;
+    esac
+    local page=1
+    while [[ -f "$PAGES/$kind.$page.json" ]]; do
+        jq -rcS "$expr" "$PAGES/$kind.$page.json" || return
+        $paginate || break
+        page=$((page + 1))
+    done
+}
+export -f gh
+
+sha() { printf '%040d' "$1"; }
+commit() { jq -nc --arg sha "$(sha "$1")" '{sha: $sha}'; }
+review() { jq -nc --arg by "$1" --arg sha "$(sha "$2")" --arg body "$3" '{user: {login: $by}, commit_id: $sha, body: $body}'; }
+comment() { jq -nc --argjson id "$1" --arg body "$2" '{id: $id, in_reply_to_id: null, user: {login: "github-actions[bot]"}, path: "a.rs", line: null, original_line: 7, body: $body, diff_hunk: "@@"}'; }
+page() { jq -sc . >"$PAGES/$1.$2.json"; }
+
+# Runs the step over the pages a case wrote and sets $since and $comments.
+run_step() {
+    local out="$work/$1.out"
+    : >"$out"
+    PAGES="$PAGES" GITHUB_REPOSITORY=org/repo PR=7 RUNNER_TEMP="$work/$1.tmp" GITHUB_OUTPUT="$out" \
+        VERDICTS="$verdicts_jq" COMMENT="$comment_jq" \
+        bash --noprofile --norc -eo pipefail -c "$script" || fail "$1: the step failed"
+    since="$(sed -n 's/^since=//p' "$out")"
+    comments="$(sed -n 's/^comments=//p' "$out")"
+    [[ -f "$comments" ]] || fail "$1: no comments file at '$comments'"
+}
+
+new_case() {
+    PAGES="$work/$1"
+    mkdir -p "$PAGES"
+    for kind in commits reviews comments; do printf '' | page "$kind" 1; done
+}
+
+assert_since() {
+    local name="$1" want="$2"
+    run_step "$name"
+    [[ "$since" == "$want" ]] || fail "$name: since '$since', want '$want'"
+}
+
+bot='github-actions[bot]'
+
+new_case first
+{ commit 1; commit 2; } | page commits 1
+assert_since first ""
+
+# The MCP tool's one page was what hid pixtuoid#1648's newest reviews.
+new_case newest-on-page-2
+commit 1 | page commits 1
+{ commit 2; commit 3; } | page commits 2
+review "$bot" 1 'Blocking: 0' | page reviews 1
+review "$bot" 2 $'Blocking: 1\n\n**Verdict:** one blocking finding' | page reviews 2
+assert_since newest-on-page-2 "$(sha 2)"
+
+new_case force-pushed
+{ commit 1; commit 3; } | page commits 1
+{ review "$bot" 1 'Blocking: 0'; review "$bot" 2 'Blocking: 0'; } | page reviews 1
+assert_since force-pushed "$(sha 1)"
+
+new_case rebased
+{ commit 3; commit 4; } | page commits 1
+{ review "$bot" 1 'Blocking: 0'; review "$bot" 2 'Blocking: 0'; } | page reviews 1
+assert_since rebased ""
+
+new_case no-verdict
+{ commit 1; commit 2; commit 3; commit 4; } | page commits 1
+{
+    review "$bot" 1 'Blocking: 0'
+    review "$bot" 2 ''
+    review "$bot" 3 $'**Verdict:** fine\nBlocking: 0'
+    review "$bot" 4 'Blocking: none'
+} | page reviews 1
+assert_since no-verdict "$(sha 1)"
+
+new_case human
+{ commit 1; commit 2; } | page commits 1
+{ review "$bot" 1 'Blocking: 0'; review someone 2 'Blocking: 0'; } | page reviews 1
+assert_since human "$(sha 1)"
+
+# The MCP tool stops at 100 comments, the oldest, so the newest round's
+# findings were the ones a re-review could not see.
+new_case comments
+{ comment 1 $'**blocking**: first\nsecond line'; comment 2 'old'; } | page comments 1
+comment 3 'newest' | page comments 2
+run_step comments
+[[ "$(wc -l <"$comments" | tr -d ' ')" == 3 ]] || fail "comments: want 3 lines, got: $(cat "$comments")"
+jq -e -s '[.[].body] == ["**blocking**: first\nsecond line", "old", "newest"]
+    and .[0].line == 7 and .[0].path == "a.rs" and .[0].user == "github-actions[bot]"
+    and (.[0] | has("diff_hunk") | not)' "$comments" >/dev/null ||
+    fail "comments: wrong lines: $(cat "$comments")"
