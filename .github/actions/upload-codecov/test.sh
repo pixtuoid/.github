@@ -30,3 +30,19 @@ assert_report() {
 assert_report "$work/report.json" pass "a non-empty report"
 assert_report "$work/empty.json" fail "an empty report"
 assert_report "$work/missing.json" fail "a missing report"
+
+# ── the advisory: a missing OIDC grant is named, not blamed on Codecov ──
+surface_script="$(yq -e -r '.runs.steps[] | select(.name == "Surface advisory upload failure") | .run' "$UPLOAD_CODECOV_ACTION_FILE")"
+
+assert_advisory() {
+    local oidc_url="$1"
+    local expect="$2"
+    local label="$3"
+    local output
+    output="$(env -u ACTIONS_ID_TOKEN_REQUEST_URL ${oidc_url:+ACTIONS_ID_TOKEN_REQUEST_URL="$oidc_url"} \
+        REPORT_FILE=codecov.json REPORT_FLAG=unit GITHUB_STEP_SUMMARY="$work/summary" bash -c "$surface_script")"
+    [[ "$output" == *"$expect"* ]] || fail "the advisory for $label says: $output"
+}
+
+assert_advisory "" "id-token: write" "a job without an OIDC grant"
+assert_advisory "https://token.example" "external-service failure" "a job with an OIDC grant"

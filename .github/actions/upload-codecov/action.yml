@@ -44,7 +44,11 @@ runs:
         REPORT_FILE: ${{ inputs.file }}
         REPORT_FLAG: ${{ inputs.flag }}
       run: |
-        message="Codecov coverage upload failed for $REPORT_FILE (flag: $REPORT_FLAG); the report was generated, so this external-service failure is advisory."
+        if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]]; then
+          message="Codecov coverage upload failed for $REPORT_FILE (flag: $REPORT_FLAG): the job got no OIDC token. The calling job needs \`permissions: id-token: write\`; a fork's or Dependabot's run gets none regardless."
+        else
+          message="Codecov coverage upload failed for $REPORT_FILE (flag: $REPORT_FLAG); the report was generated, so this external-service failure is advisory."
+        fi
         echo "::warning title=Codecov upload failed::$message"
         {
           echo "### Codecov upload warning"
