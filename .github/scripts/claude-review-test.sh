@@ -12,6 +12,7 @@ step='.jobs.claude-review.steps[] | select(.id == "scope")'
 script="$(yq -e -r "$step | .run" "$WORKFLOW_FILE")"
 verdicts_jq="$(yq -e -r "$step | .env.VERDICTS" "$WORKFLOW_FILE")"
 comment_jq="$(yq -e -r "$step | .env.COMMENT" "$WORKFLOW_FILE")"
+recheck_jq="$(yq -e -r "$step | .env.RECHECK" "$WORKFLOW_FILE")"
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -48,21 +49,41 @@ gh() {
 export -f gh
 
 sha() { printf '%040d' "$1"; }
+at() { printf '2026-01-01T00:%02d:00Z' "$1"; }
 commit() { jq -nc --arg sha "$(sha "$1")" '{sha: $sha}'; }
-review() { jq -nc --arg by "$1" --arg sha "$(sha "$2")" --arg body "$3" '{user: {login: $by}, commit_id: $sha, body: $body}'; }
-comment() { jq -nc --argjson id "$1" --arg body "$2" '{id: $id, in_reply_to_id: null, user: {login: "github-actions[bot]"}, path: "a.rs", line: null, original_line: 7, body: $body, diff_hunk: "@@"}'; }
+# review <author> <commit> <body> [minute submitted, default the commit's number]
+review() {
+    jq -nc --arg by "$1" --arg sha "$(sha "$2")" --arg body "$3" --arg at "$(at "${4:-$2}")" \
+        '{user: {login: $by}, commit_id: $sha, body: $body, submitted_at: $at}'
+}
+# comment <id> <body> [id it replies to] [minute created, default the id]
+comment() {
+    jq -nc --argjson id "$1" --arg body "$2" --argjson to "${3:-null}" --arg at "$(at "${4:-$1}")" \
+        '{id: $id, in_reply_to_id: $to, created_at: $at, user: {login: "github-actions[bot]"}, path: "a.rs", line: null, original_line: 7, body: $body, diff_hunk: "@@"}'
+}
 page() { jq -sc . >"$PAGES/$1.$2.json"; }
 
-# Runs the step over the pages a case wrote and sets $since and $comments.
+# Runs the step over the pages a case wrote and sets $since, $comments and
+# $recheck.
 run_step() {
     local out="$work/$1.out"
     : >"$out"
     PAGES="$PAGES" GITHUB_REPOSITORY=org/repo PR=7 RUNNER_TEMP="$work/$1.tmp" GITHUB_OUTPUT="$out" \
-        VERDICTS="$verdicts_jq" COMMENT="$comment_jq" \
+        VERDICTS="$verdicts_jq" COMMENT="$comment_jq" RECHECK="$recheck_jq" \
         bash --noprofile --norc -eo pipefail -c "$script" || fail "$1: the step failed"
     since="$(sed -n 's/^since=//p' "$out")"
     comments="$(sed -n 's/^comments=//p' "$out")"
+    recheck="$(sed -n 's/^recheck=//p' "$out")"
     [[ -f "$comments" ]] || fail "$1: no comments file at '$comments'"
+    [[ -f "$recheck" ]] || fail "$1: no recheck file at '$recheck'"
+}
+
+# The finding ids of the recheck file, each with its replies' ids.
+assert_recheck() {
+    local name="$1" want="$2" got
+    run_step "$name"
+    got="$(jq -c -s 'map([.finding.id, (.replies | map(.id))])' "$recheck")"
+    [[ "$got" == "$want" ]] || fail "$name: recheck $got, want $want"
 }
 
 new_case() {
@@ -107,7 +128,7 @@ new_case no-verdict
     review "$bot" 1 'Blocking: 0'
     review "$bot" 2 ''
     review "$bot" 3 $'**Verdict:** fine\nBlocking: 0'
-    review "$bot" 4 'Blocking: none'
+    review "$bot" 4 'Blocking: incomplete'
 } | page reviews 1
 assert_since no-verdict "$(sha 1)"
 
@@ -127,3 +148,31 @@ jq -e -s '[.[].body] == ["**blocking**: first\nsecond line", "old", "newest"]
     and .[0].line == 7 and .[0].path == "a.rs" and .[0].user == "github-actions[bot]"
     and (.[0] | has("diff_hunk") | not)' "$comments" >/dev/null ||
     fail "comments: wrong lines: $(cat "$comments")"
+
+# Before a second verdict every reply is one no review has checked.
+new_case recheck-first
+{ comment 1 'finding'; comment 2 'finding'; comment 3 'FIXED in x' 2; } | page comments 1
+assert_recheck recheck-first '[[2,[3]]]'
+
+# The review before the last was submitted at minute 20, so the last one read
+# the comments after it: a reply at 25, while the last review ran, is still
+# unchecked, and one at 15 was checked.
+new_case recheck-window
+{ commit 1; commit 2; commit 3; } | page commits 1
+{ review "$bot" 1 'Blocking: 1' 10; review "$bot" 2 'Blocking: 0' 20; review "$bot" 3 'Blocking: 0' 30; } | page reviews 1
+{
+    comment 1 'a'
+    comment 2 'FIXED' 1 15
+    comment 3 'b'
+    comment 4 'FIXED' 3 25
+    comment 5 'c'
+    comment 6 'FIXED' 5 35
+    comment 7 'd'
+    comment 8 'FIXED' 7 12
+    comment 9 'still broken?' 7 40
+} | page comments 1
+assert_recheck recheck-window '[[3,[4]],[5,[6]],[7,[9]]]'
+
+new_case recheck-chain
+{ comment 1 'finding'; comment 2 'FIXED' 1; comment 3 'no, still there' 2; } | page comments 1
+assert_recheck recheck-chain '[[1,[2,3]]]'
