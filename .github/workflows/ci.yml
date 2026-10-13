@@ -36,3 +36,4 @@ jobs:
       - run: bash .github/scripts/shellcheck-composites.sh
       - run: bash .github/actions/setup-rust/test.sh
       - run: bash .github/actions/require-jobs/test.sh
+      - run: bash .github/actions/upload-codecov/test.sh
