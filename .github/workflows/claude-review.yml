@@ -50,12 +50,10 @@ jobs:
             | "\(.commit_id) \(.submitted_at)"
           COMMENT: >-
             .[] | {id, in_reply_to_id, created_at, user: .user.login, path, line: (.line // .original_line), body}
-          # A reply's in_reply_to_id is its thread's first comment, as GitHub
-          # supports no reply to a reply; the walk holds either way.
+          # GitHub stores a reply to a reply as one to its thread's first
+          # comment, so in_reply_to_id names the thread.
           RECHECK: >-
-            (map({key: (.id | tostring), value: .in_reply_to_id}) | from_entries) as $up
-            | def root: if $up[tostring] != null then $up[tostring] | root else . end;
-            group_by(.id | root)[]
+            group_by(.in_reply_to_id // .id)[]
             | {finding: (map(select(.in_reply_to_id == null)) | first), replies: map(select(.in_reply_to_id != null and .created_at > $after))}
             | select(.finding != null and (.replies | length) > 0)
         run: |

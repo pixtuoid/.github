@@ -172,7 +172,3 @@ new_case recheck-window
     comment 9 'still broken?' 7 40
 } | page comments 1
 assert_recheck recheck-window '[[3,[4]],[5,[6]],[7,[9]]]'
-
-new_case recheck-chain
-{ comment 1 'finding'; comment 2 'FIXED' 1; comment 3 'no, still there' 2; } | page comments 1
-assert_recheck recheck-chain '[[1,[2,3]]]'
