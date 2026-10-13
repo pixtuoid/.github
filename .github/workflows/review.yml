@@ -5,7 +5,7 @@ on:
 permissions: {}
 jobs:
   claude-review:
-    uses: pixtuoid/.github/.github/workflows/claude-review.yml@main
+    uses: pixtuoid/.github/.github/workflows/claude-review.yml@ci/review-scope-from-every-page
     permissions:
       contents: read
       pull-requests: write
