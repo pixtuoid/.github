@@ -198,7 +198,7 @@ run_diff() {
     local dir="$work/diff-$2"
     mkdir -p "$dir"
     : >"$dir/out"
-    (cd "$repo" && PAGES="$work/$2" GITHUB_REPOSITORY=org/repo PR=7 BASE_REF=main HEAD="$merge" \
+    (cd "$repo" && BASE_REF=main HEAD="$merge" \
         SINCE="$1" DIR="$dir" GITHUB_OUTPUT="$dir/out" \
         bash --noprofile --norc -eo pipefail -c "$diff_script") || fail "diff $2: the step failed"
     sed -n 's/^diff=//p' "$dir/out"
@@ -207,11 +207,9 @@ run_diff() {
 # Each file a diff names, by its head-side path.
 files() { sed -n 's|^diff --git a/.* b/||p; s|^diff --cc ||p' "$1" | sort | tr '\n' ' '; }
 
-new_case whole
 got="$(files "$(run_diff "" whole)")"
 [[ "$got" == "a p1 p2 " ]] || fail "diff whole: want the PR's a, p1 and p2, got: $got"
 
-new_case since
 since="$(run_diff "$p1" since)"
 got="$(files "$since")"
 [[ "$got" == "a a p2 " ]] || fail "diff since: want p2's a and p2 and the merge's resolution of a, got: $got"

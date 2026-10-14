@@ -85,8 +85,6 @@ jobs:
       - name: Write the scope's diff
         id: diff
         env:
-          GH_TOKEN: ${{ github.token }}
-          PR: ${{ github.event.pull_request.number }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD: ${{ github.event.pull_request.head.sha }}
           SINCE: ${{ steps.scope.outputs.since }}
