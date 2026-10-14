@@ -17,15 +17,11 @@ recheck_jq="$(yq -e -r "$step | .env.RECHECK" "$WORKFLOW_FILE")"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-# Serves `gh pr diff` from $PAGES/diff, and $PAGES/<kind>.<n>.json in page
-# order, each through --jq as gh does, and only page 1 without --paginate;
-# anything else is a call the step must not make.
+# Serves $PAGES/<kind>.<n>.json in page order, each through --jq as gh does,
+# and only page 1 without --paginate; anything else is a call the step must
+# not make.
 gh() {
     local paginate=false path="" expr="" kind
-    if [[ "$*" == "pr diff $PR --repo $GITHUB_REPOSITORY --color never" ]]; then
-        cat "$PAGES/diff"
-        return
-    fi
     [[ "${1:-}" == api ]] || { echo "gh stub: unexpected: $*" >&2; return 1; }
     shift
     while (($#)); do
@@ -178,7 +174,8 @@ new_case recheck-window
 assert_recheck recheck-window '[[3,[4]],[5,[6]],[7,[9]]]'
 
 # The diff step, over a real repo: base b, the PR's commits p1 and p2, then a
-# merge of the base's next commit b2, resolving their conflict in a.
+# merge of the base's next commit b2, resolving their conflict in a; the base
+# then moves on to b3, and the checkout past the event's head to p3.
 diff_script="$(yq -e -r '.jobs.claude-review.steps[] | select(.id == "diff") | .run' "$WORKFLOW_FILE")"
 repo="$work/repo"
 git init -q -b main "$repo"
@@ -191,6 +188,10 @@ g switch -q main && echo b2 >"$repo/b2" && echo main >"$repo/a" && g add b2 a &&
 g update-ref refs/remotes/origin/main main
 g switch -q pr && { g merge -q main >/dev/null || true; } && echo both >"$repo/a" && g add a &&
     g commit -q --no-edit && merge="$(g rev-parse HEAD)"
+g switch -q main && echo b3 >"$repo/b3" && g add b3 && g commit -qm b3
+g update-ref refs/remotes/origin/main main && g switch -q pr
+# The PR moves on to p3 after the event the step runs for.
+echo three >"$repo/p3" && g add p3 && g commit -qm p3
 
 # Runs the step with the scope after commit $1 and echoes the diff's path.
 run_diff() {
@@ -203,12 +204,15 @@ run_diff() {
     sed -n 's/^diff=//p' "$dir/out"
 }
 
+# Each file a diff names, by its head-side path.
+files() { sed -n 's|^diff --git a/.* b/||p; s|^diff --cc ||p' "$1" | sort | tr '\n' ' '; }
+
 new_case whole
-echo 'the PR diff' >"$PAGES/diff"
-[[ "$(cat "$(run_diff "" whole)")" == 'the PR diff' ]] || fail "diff whole: not GitHub's PR diff"
+got="$(files "$(run_diff "" whole)")"
+[[ "$got" == "a p1 p2 " ]] || fail "diff whole: want the PR's a, p1 and p2, got: $got"
 
 new_case since
 since="$(run_diff "$p1" since)"
-got="$(sed -n 's|^diff --git a/.* b/||p; s|^diff --cc ||p' "$since" | sort | tr '\n' ' ')"
+got="$(files "$since")"
 [[ "$got" == "a a p2 " ]] || fail "diff since: want p2's a and p2 and the merge's resolution of a, got: $got"
 grep -q "^commit $merge" "$since" || fail "diff since: the merge commit is not listed"

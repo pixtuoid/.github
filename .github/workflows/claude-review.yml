@@ -95,7 +95,10 @@ jobs:
           set -euo pipefail
           out="$DIR/scope.diff"
           if [[ -z "$SINCE" ]]; then
-            gh pr diff "$PR" --repo "$GITHUB_REPOSITORY" --color never >"$out"
+            # GitHub's PR diff is this three-dot diff (docs.github.com, "About
+            # comparing branches in pull requests"), here pinned to the event's
+            # head and free of the API's size cap.
+            git -c core.quotePath=false diff "origin/$BASE_REF...$HEAD" >"$out"
           else
             # The PR's own commits after the judged one, oldest first, never
             # the base's: a merge of it shows only its conflict resolutions.
