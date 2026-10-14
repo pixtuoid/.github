@@ -172,3 +172,49 @@ new_case recheck-window
     comment 9 'still broken?' 7 40
 } | page comments 1
 assert_recheck recheck-window '[[3,[4]],[5,[6]],[7,[9]]]'
+
+# The diff step, over a real repo: base b, the PR's commits p1 and p2, then a
+# merge of the base's next commit b2, resolving their conflict in a; the base
+# then moves on to b3, and the checkout past the event's head to p3. p2 also
+# marks the PR's files -diff, which must not hide their hunks.
+diff_script="$(yq -e -r '.jobs.claude-review.steps[] | select(.id == "diff") | .run' "$WORKFLOW_FILE")"
+repo="$work/repo"
+git init -q -b main "$repo"
+g() { git -C "$repo" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@"; }
+echo base >"$repo/a" && g add a && g commit -qm b
+g switch -qc pr
+echo one >"$repo/p1" && g add p1 && g commit -qm p1 && p1="$(g rev-parse HEAD)"
+echo two >"$repo/p2" && echo pr >"$repo/a" && echo 'p* -diff' >"$repo/.gitattributes" &&
+    g add p2 a .gitattributes && g commit -qm p2
+g switch -q main && echo b2 >"$repo/b2" && echo main >"$repo/a" && g add b2 a && g commit -qm b2
+g update-ref refs/remotes/origin/main main
+g switch -q pr && { g merge -q main >/dev/null || true; } && echo both >"$repo/a" && g add a &&
+    g commit -q --no-edit && merge="$(g rev-parse HEAD)"
+g switch -q main && echo b3 >"$repo/b3" && g add b3 && g commit -qm b3
+g update-ref refs/remotes/origin/main main && g switch -q pr
+# The PR moves on to p3 after the event the step runs for.
+echo three >"$repo/p3" && g add p3 && g commit -qm p3
+
+# Runs the step with the scope after commit $1 and echoes the diff's path.
+run_diff() {
+    local dir="$work/diff-$2"
+    mkdir -p "$dir"
+    : >"$dir/out"
+    (cd "$repo" && BASE_REF=main HEAD="$merge" \
+        SINCE="$1" DIR="$dir" GITHUB_OUTPUT="$dir/out" \
+        bash --noprofile --norc -eo pipefail -c "$diff_script") || fail "diff $2: the step failed"
+    sed -n 's/^diff=//p' "$dir/out"
+}
+
+# Each file a diff names, by its head-side path.
+files() { sed -n 's|^diff --git a/.* b/||p; s|^diff --cc ||p' "$1" | sort | tr '\n' ' '; }
+
+got="$(files "$(run_diff "" whole)")"
+[[ "$got" == ".gitattributes a p1 p2 " ]] || fail "diff whole: want the PR's .gitattributes, a, p1 and p2, got: $got"
+grep -qx '+one' "$work/diff-whole/scope.diff" || fail "diff whole: the PR's own .gitattributes hid p1's hunk"
+
+since="$(run_diff "$p1" since)"
+got="$(files "$since")"
+[[ "$got" == ".gitattributes a a p2 " ]] || fail "diff since: want p2's .gitattributes, a and p2 and the merge's resolution of a, got: $got"
+grep -qx '+two' "$since" || fail "diff since: the PR's own .gitattributes hid p2's hunk"
+grep -q "^commit $merge" "$since" || fail "diff since: the merge commit is not listed"
