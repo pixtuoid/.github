@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          # The scope's diff below reaches back to the base and every PR commit.
+          # The scope's diff below reads the PR's commits and the base branch.
           fetch-depth: 0
           persist-credentials: false
       # The GitHub MCP server reads only the first page of a PR's reviews and
@@ -71,13 +71,11 @@ jobs:
           after="$(awk 'NF { at[++n] = $2 } END { if (n > 1) print at[n - 1] }' <<<"$reviewed")"
           dir="$RUNNER_TEMP/review-context"
           mkdir -p "$dir"
-          printf '%s\n' "$commits" >"$dir/commits.txt"
           gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/comments?per_page=100" --jq "$COMMENT" >"$dir/comments.jsonl"
           jq -c -s --arg after "$after" "$RECHECK" "$dir/comments.jsonl" >"$dir/recheck.jsonl"
           {
             echo "since=$since"
             echo "dir=$dir"
-            echo "commits=$dir/commits.txt"
             echo "comments=$dir/comments.jsonl"
             echo "recheck=$dir/recheck.jsonl"
           } >>"$GITHUB_OUTPUT"
@@ -92,27 +90,17 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD: ${{ github.event.pull_request.head.sha }}
           SINCE: ${{ steps.scope.outputs.since }}
-          COMMITS: ${{ steps.scope.outputs.commits }}
           DIR: ${{ steps.scope.outputs.dir }}
         run: |
           set -euo pipefail
           out="$DIR/scope.diff"
           if [[ -z "$SINCE" ]]; then
-            # The PR diff as GitHub defines it, from the merge base with the
-            # base branch as it is now (fetch-depth 0 fetched every branch),
-            # held to GitHub's own list of the PR's files, a rename's both names
-            # on each side, so neither's rename detection decides.
-            git diff "origin/$BASE_REF...$HEAD" >"$out"
-            git diff --no-renames --name-only "origin/$BASE_REF...$HEAD" | sort -u >"$DIR/scope-files.txt"
-            gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" \
-              --jq '.[] | .filename, (.previous_filename // empty)' | sort -u >"$DIR/pr-files.txt"
-            cmp -s "$DIR/scope-files.txt" "$DIR/pr-files.txt" ||
-              { echo "::error::the scope's files differ from the PR's"; diff "$DIR/scope-files.txt" "$DIR/pr-files.txt"; exit 1; }
+            gh pr diff "$PR" --repo "$GITHUB_REPOSITORY" --color never >"$out"
           else
             # The PR's own commits after the judged one, oldest first, never
             # the base's: a merge of it shows only its conflict resolutions.
-            awk -v since="$SINCE" 'after { print } $0 == since { after = 1 }' "$COMMITS" |
-              while read -r sha; do git show --cc --format='commit %H%n%n    %s%n' "$sha"; done >"$out"
+            git log -p --cc --reverse --topo-order --format='commit %H%n%n    %s%n' \
+              "$HEAD" ^"$SINCE" ^"origin/$BASE_REF" >"$out"
           fi
           echo "diff=$out" >>"$GITHUB_OUTPUT"
       - uses: anthropics/claude-code-action@1d6de8cb0c237e7c15e9e1bdf973826ebae490cc # v1.0.248
