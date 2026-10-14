@@ -37,6 +37,7 @@ gh() {
     "repos/$GITHUB_REPOSITORY/pulls/$PR/commits?per_page=100") kind=commits ;;
     "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews?per_page=100") kind=reviews ;;
     "repos/$GITHUB_REPOSITORY/pulls/$PR/comments?per_page=100") kind=comments ;;
+    "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100") kind=files ;;
     *) echo "gh stub: unexpected path $path" >&2; return 1 ;;
     esac
     local page=1
@@ -172,3 +173,50 @@ new_case recheck-window
     comment 9 'still broken?' 7 40
 } | page comments 1
 assert_recheck recheck-window '[[3,[4]],[5,[6]],[7,[9]]]'
+
+# The diff step, over a real repo: base b, the PR's commits p1 (a file and a
+# rename) and p2, then a merge of the base's next commit b2, which the event's
+# base branch then holds.
+diff_script="$(yq -e -r '.jobs.claude-review.steps[] | select(.id == "diff") | .run' "$WORKFLOW_FILE")"
+repo="$work/repo"
+git init -q -b main "$repo"
+g() { git -C "$repo" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@"; }
+echo base >"$repo/a" && echo moved >"$repo/old" && g add a old && g commit -qm b
+g switch -qc pr
+echo one >"$repo/p1" && g mv old new && g add p1 && g commit -qm p1 && p1="$(g rev-parse HEAD)"
+echo two >"$repo/p2" && g add p2 && g commit -qm p2 && p2="$(g rev-parse HEAD)"
+g switch -q main && echo b2 >"$repo/b2" && g add b2 && g commit -qm b2
+g update-ref refs/remotes/origin/main main
+g switch -q pr && g merge -q --no-edit main && merge="$(g rev-parse HEAD)"
+
+# file <name> [the name it was renamed from]
+file() { jq -nc --arg f "$1" --arg p "${2:-}" '{filename: $f} + (if $p == "" then {} else {previous_filename: $p} end)'; }
+
+# Runs the step with the PR's commits $p1 $p2 $merge after $1, GitHub listing
+# the files of case $2, and echoes the diff's path.
+run_diff() {
+    local dir="$work/diff-$2"
+    mkdir -p "$dir"
+    printf '%s\n' "$p1" "$p2" "$merge" >"$dir/commits.txt"
+    : >"$dir/out"
+    (cd "$repo" && PAGES="$work/$2" GITHUB_REPOSITORY=org/repo PR=7 BASE_REF=main HEAD="$merge" \
+        SINCE="$1" COMMITS="$dir/commits.txt" DIR="$dir" GITHUB_OUTPUT="$dir/out" \
+        bash --noprofile --norc -eo pipefail -c "$diff_script") >/dev/null 2>&1 || return 1
+    sed -n 's/^diff=//p' "$dir/out"
+}
+# Each file a diff names, by its head-side path.
+files() { sed -n 's|^diff --git a/.* b/||p; s|^diff --cc ||p' "$1" | sort | tr '\n' ' '; }
+
+new_case whole
+{ file new old; file p1; file p2; } | page files 1
+whole="$(run_diff "" whole)" || fail "diff whole: the step failed"
+[[ "$(files "$whole")" == "new p1 p2 " ]] || fail "diff whole: $(files "$whole")"
+
+new_case disagrees
+{ file new old; file p1; file p2; file b2; } | page files 1
+! run_diff "" disagrees >/dev/null || fail "diff disagrees: a diff GitHub lists more files for was kept"
+
+new_case since
+since="$(run_diff "$p1" since)" || fail "diff since: the step failed"
+[[ "$(files "$since")" == "p2 " ]] || fail "diff since: the base's merge or p1 leaked: $(files "$since")"
+grep -q "^commit $merge" "$since" || fail "diff since: the merge commit is not listed"
