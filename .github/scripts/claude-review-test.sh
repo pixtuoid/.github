@@ -175,7 +175,8 @@ assert_recheck recheck-window '[[3,[4]],[5,[6]],[7,[9]]]'
 
 # The diff step, over a real repo: base b, the PR's commits p1 and p2, then a
 # merge of the base's next commit b2, resolving their conflict in a; the base
-# then moves on to b3, and the checkout past the event's head to p3.
+# then moves on to b3, and the checkout past the event's head to p3. p2 also
+# marks the PR's files -diff, which must not hide their hunks.
 diff_script="$(yq -e -r '.jobs.claude-review.steps[] | select(.id == "diff") | .run' "$WORKFLOW_FILE")"
 repo="$work/repo"
 git init -q -b main "$repo"
@@ -183,7 +184,8 @@ g() { git -C "$repo" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$
 echo base >"$repo/a" && g add a && g commit -qm b
 g switch -qc pr
 echo one >"$repo/p1" && g add p1 && g commit -qm p1 && p1="$(g rev-parse HEAD)"
-echo two >"$repo/p2" && echo pr >"$repo/a" && g add p2 a && g commit -qm p2
+echo two >"$repo/p2" && echo pr >"$repo/a" && echo 'p* -diff' >"$repo/.gitattributes" &&
+    g add p2 a .gitattributes && g commit -qm p2
 g switch -q main && echo b2 >"$repo/b2" && echo main >"$repo/a" && g add b2 a && g commit -qm b2
 g update-ref refs/remotes/origin/main main
 g switch -q pr && { g merge -q main >/dev/null || true; } && echo both >"$repo/a" && g add a &&
@@ -208,9 +210,11 @@ run_diff() {
 files() { sed -n 's|^diff --git a/.* b/||p; s|^diff --cc ||p' "$1" | sort | tr '\n' ' '; }
 
 got="$(files "$(run_diff "" whole)")"
-[[ "$got" == "a p1 p2 " ]] || fail "diff whole: want the PR's a, p1 and p2, got: $got"
+[[ "$got" == ".gitattributes a p1 p2 " ]] || fail "diff whole: want the PR's .gitattributes, a, p1 and p2, got: $got"
+grep -qx '+one' "$work/diff-whole/scope.diff" || fail "diff whole: the PR's own .gitattributes hid p1's hunk"
 
 since="$(run_diff "$p1" since)"
 got="$(files "$since")"
-[[ "$got" == "a a p2 " ]] || fail "diff since: want p2's a and p2 and the merge's resolution of a, got: $got"
+[[ "$got" == ".gitattributes a a p2 " ]] || fail "diff since: want p2's .gitattributes, a and p2 and the merge's resolution of a, got: $got"
+grep -qx '+two' "$since" || fail "diff since: the PR's own .gitattributes hid p2's hunk"
 grep -q "^commit $merge" "$since" || fail "diff since: the merge commit is not listed"

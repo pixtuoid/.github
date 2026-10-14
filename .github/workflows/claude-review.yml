@@ -95,12 +95,13 @@ jobs:
           if [[ -z "$SINCE" ]]; then
             # GitHub's PR diff is this three-dot diff (docs.github.com, "About
             # comparing branches in pull requests"), here pinned to the event's
-            # head and free of the API's size cap.
-            git -c core.quotePath=false diff "origin/$BASE_REF...$HEAD" >"$out"
+            # head and free of the API's size cap. Both diffs read the base's
+            # .gitattributes, so a PR cannot mark its own hunks -diff.
+            git -c core.quotePath=false --attr-source="origin/$BASE_REF" diff "origin/$BASE_REF...$HEAD" >"$out"
           else
             # The PR's own commits after the judged one, oldest first, never
             # the base's: a merge of it shows only its conflict resolutions.
-            git log -p --cc --reverse --topo-order --format='commit %H%n%n    %s%n' \
+            git --attr-source="origin/$BASE_REF" log -p --cc --reverse --topo-order --format='commit %H%n%n    %s%n' \
               "$HEAD" ^"$SINCE" ^"origin/$BASE_REF" >"$out"
           fi
           echo "diff=$out" >>"$GITHUB_OUTPUT"
