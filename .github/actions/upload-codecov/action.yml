@@ -1,5 +1,5 @@
 name: Upload coverage to Codecov
-description: Require a generated report and make advisory upload failures visible
+description: Require a generated report and upload it (advisory)
 
 inputs:
   file:
@@ -25,7 +25,6 @@ runs:
         echo "$REPORT_FILE=$(wc -c < "$REPORT_FILE")B"
 
     - name: Upload report
-      id: upload
       continue-on-error: true
       uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
       with:
@@ -36,24 +35,3 @@ runs:
         plugins: noop
         fail_ci_if_error: true
         use_oidc: true
-
-    - name: Surface advisory upload failure
-      if: ${{ steps.upload.outcome == 'failure' }}
-      shell: bash
-      env:
-        REPORT_FILE: ${{ inputs.file }}
-        REPORT_FLAG: ${{ inputs.flag }}
-      run: |
-        if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]]; then
-          message="Codecov coverage upload failed for $REPORT_FILE (flag: $REPORT_FLAG): the job got no OIDC token. The calling job needs \`permissions: id-token: write\`; a fork's or Dependabot's run gets none regardless."
-        else
-          message="Codecov coverage upload failed for $REPORT_FILE (flag: $REPORT_FLAG); the report was generated, so this external-service failure is advisory."
-        fi
-        echo "::warning title=Codecov upload failed::$message"
-        {
-          echo "### Codecov upload warning"
-          echo
-          echo "$message"
-          echo
-          echo "Inspect the **Upload report** step above for the uploader error."
-        } >> "$GITHUB_STEP_SUMMARY"

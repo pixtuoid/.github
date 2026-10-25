@@ -9,8 +9,7 @@ fail() {
 
 # ── require-jobs: the verdict ci-gate and every group's `required` job reach ──
 # Anything but success is red, and an empty needs map must not pass vacuously.
-REQUIRE_JOBS_ACTION_FILE="${REQUIRE_JOBS_ACTION_FILE:-.github/actions/require-jobs/action.yml}"
-require_script="$(yq -e -r '.runs.steps[0].run' "$REQUIRE_JOBS_ACTION_FILE")"
+require_script="$(yq -e -r '.runs.steps[0].run' .github/actions/require-jobs/action.yml)"
 
 assert_required() {
     local results="$1"
