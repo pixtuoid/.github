@@ -7,7 +7,7 @@ fail() {
     exit 1
 }
 
-WORKFLOW_FILE="${CLAUDE_REVIEW_WORKFLOW_FILE:-.github/workflows/claude-review.yml}"
+WORKFLOW_FILE=.github/workflows/claude-review.yml
 step='.jobs.claude-review.steps[] | select(.id == "scope")'
 script="$(yq -e -r "$step | .run" "$WORKFLOW_FILE")"
 verdicts_jq="$(yq -e -r "$step | .env.VERDICTS" "$WORKFLOW_FILE")"
