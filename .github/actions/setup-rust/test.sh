@@ -19,7 +19,7 @@ printf '%s\n' '#!/usr/bin/env bash' 'printf "rustup %s\n" "$*" >>"$FAKE_RUSTUP_L
 chmod +x "$rust_dir/bin/rustup"
 run_rust() {
     rm -f "$rust_dir/log"
-    PATH="$rust_dir/bin:$PATH" FAKE_RUSTUP_LOG="$rust_dir/log" COMPONENTS="${1:-}" TARGETS="${2:-}" bash -c "$rust_script" >/dev/null 2>"$rust_dir/err"
+    PATH="$rust_dir/bin:$PATH" FAKE_RUSTUP_LOG="$rust_dir/log" COMPONENTS="${1:-}" TARGETS="${2:-}" bash -c "$rust_script" >/dev/null
 }
 rust_count() { grep -c -e "$1" "$rust_dir/log" || true; }
 run_rust || fail "setup-rust failed with a healthy rustup"
