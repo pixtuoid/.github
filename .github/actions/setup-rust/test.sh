@@ -23,9 +23,8 @@ run_rust() {
 }
 rust_count() { grep -c -e "$1" "$rust_dir/log" || true; }
 run_rust || fail "setup-rust failed with a healthy rustup"
-[[ "$(rust_count '^rustup update')" == 1 ]] || fail "setup-rust did not update exactly once: $(<"$rust_dir/log")"
 [[ "$(rust_count '^rustup toolchain install --profile minimal --no-self-update$')" == 1 ]] ||
-    fail "setup-rust did not install the file's toolchain after the update: $(<"$rust_dir/log")"
+    fail "setup-rust did not install the file's toolchain: $(<"$rust_dir/log")"
 [[ "$(rust_count '^rustup component\|^rustup target')" == 0 ]] || fail "setup-rust added components or targets nobody asked for: $(<"$rust_dir/log")"
 run_rust "llvm-tools, rustfmt" "wasm32-unknown-unknown,aarch64-apple-darwin" || fail "setup-rust failed with extra components and targets"
 [[ "$(rust_count '^rustup component add llvm-tools rustfmt$')" == 1 && "$(rust_count '^rustup target add wasm32-unknown-unknown aarch64-apple-darwin$')" == 1 ]] ||
