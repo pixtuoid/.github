@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/pixtuoid/pixtuoid/main/docs/images/sprite-banner.png" alt="pixtuoid sprites" width="420" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pixtuoid/pixtuoid/main/docs/images/banner/banner-dark.svg" />
+    <img alt="pixtuoid: a neon office sign, a cat asleep on it and a coworker holding a coffee" src="https://raw.githubusercontent.com/pixtuoid/pixtuoid/main/docs/images/banner/banner-light.svg" />
+  </picture>
 </p>
 
 <p align="center">
