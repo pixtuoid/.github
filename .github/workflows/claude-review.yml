@@ -2,7 +2,8 @@ name: claude-review
 
 # Every org repo's review, called from its own `pull_request` workflow:
 # anthropics/claude-code-action's automatic PR review (docs/solutions.md), the
-# repo's rules in its AGENTS.md and REVIEW.md.
+# repo's rules in its AGENTS.md and REVIEW.md under the prompt's org-wide
+# review contract and lenses.
 on:
   workflow_call:
     secrets:
@@ -128,6 +129,12 @@ jobs:
             - A finding gives its severity, its head-side path:line, the evidence read this run, a reachable failure scenario and the fix. A claim about anything outside the repository that this run did not fetch says "unverified".
             - Only a finding a verifier keeps is posted or counted; the finder's label alone never counts.
             - Every review comment on this PR, resolved or not, is a line of ${{ steps.scope.outputs.comments }}: a finding one of them already raised is never raised again, unless it is a recheck a verifier keeps.
+            - Every repository's review applies these lenses beside its REVIEW.md; each lens finding names the cheaper or correct alternative, and is non-blocking unless it breaches AGENTS.md. The design-reviewer applies Words, Proportion, Sourced practice and One source; the correctness-reviewer applies Wiring.
+              - Words: list every name the diff adds or changes, every comment and doc line in a changed file, and every comment or doc elsewhere that names, counts or describes what the diff renames, moves or changes, and give the count judged. Each must be faithful (true at the head: a behavior change renames its item and rewrites what describes it), clear (a reader without this PR's context reads it right; one concept has one name, and no name means two concepts) and concise (the shortest name that stays clear, in the domain's existing word and the language's naming guidelines; a comment earns its place by AGENTS.md's comment rules).
+              - Proportion: over-engineering (a branch, helper, parameter, type, fallback or test machinery that serves no reachable case), low ROI (code or coupling out of proportion to its payoff), hard to maintain (needless indirection, special cases, one change smeared across many files, an invariant held by prose where a type or one source of truth could hold it), and a hand-rolled mechanism for a need that a maintained library, the platform or the upstream tool already meets, citing a file of it read this run or marked unverified.
+              - Sourced practice: a claim of best practice, or about anything outside the repository, in the diff or the PR body, that cites no source fetched in its session and is not labelled opinion.
+              - One source: a new function, type, helper or constant gets a whole-repository search for an existing one, and a value a new line reads is the authority its consumer uses, not a copy; when a copy must cross a boundary, a test pins the pair.
+              - Wiring: every new field, parameter, constant or gate has a live consumer in the same diff, and every new or changed test fails when the code it names is wrong.
             The newest commit of this PR that an automated review already judged is ${{ steps.scope.outputs.since || 'none' }}. The scope is the diff in ${{ steps.diff.outputs.diff }}: the PR's own commits after it, where a merge of the base branch shows only its conflict resolutions, or the PR's whole diff when it is none. Read it whole; the rest is context.
             Each line of ${{ steps.scope.outputs.recheck }} is an earlier finding with its recent replies. Where one of those replies says the head no longer has the defect or never had it, and no comment after that reply raised it again, the finding is a recheck: a candidate that the head still has its defect, given to its verifier with those replies. A finding that a kept recheck raised again is never a recheck again.
             1. Spawn the correctness-reviewer and the design-reviewer in parallel, each given the scope, the base commit and the contract verbatim. Merge duplicates and add the rechecks, then spawn one verifier per candidate, given the base commit and the contract verbatim.
