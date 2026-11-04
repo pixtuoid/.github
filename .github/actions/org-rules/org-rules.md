@@ -14,5 +14,5 @@ The owner's bar, in their words:
 - **No magic numbers.** Reuse the existing authority, else one named constant at the narrowest scope; when a copy of a value must cross a boundary, a test pins the pair. No `unwrap()` outside tests.
 - **Review findings.** A finding's premise is checked against the item it names before it is accepted. A refuted finding produces a mechanism (a test, a compile-time constraint, a CI gate) or nothing.
 - **Docs** change in the same commit as what they describe, and no new doc lands unless the owner asks.
-- **Git.** Never force-push or push to `main`, and never skip hooks.
+- **Git.** Never force-push and never skip hooks. How a change reaches `main` is each repo's own rule.
 - **The [Roadmap](https://github.com/orgs/pixtuoid/projects/1) is the plan of record**, the owner's rule ("每做一步都需要sync board"): every step (an item started or finished, a PR opened, merged or closed, a reorder) updates its item, the draft or the issue it tracks, in the same turn. Who may file an issue is each repo's own rule.
