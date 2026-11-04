@@ -29,12 +29,13 @@ runs:
           echo "::error file=$FILE::org-rules: needs exactly one '$begin' line and one '$end' line (found $begins and $ends)"
           exit 1
         fi
-        copy="$(awk -v b="$begin" -v e="$end" '$0 == e { inside = 0 } inside { print } $0 == b { inside = 1 }' "$FILE")"
-        if [[ -z "$copy" ]]; then
+        # Read straight from awk, never through $(...), which would drop trailing blank lines.
+        between() { awk -v b="$begin" -v e="$end" '$0 == e { inside = 0 } inside { print } $0 == b { inside = 1 }' "$FILE"; }
+        if [[ -z "$(between)" ]]; then
           echo "::error file=$FILE::org-rules: '$end' comes before '$begin', or nothing sits between them"
           exit 1
         fi
-        if ! diff -u --label "pixtuoid/.github org-rules.md" --label "$FILE" "$RULES" <(printf '%s\n' "$copy"); then
+        if ! diff -u --label "pixtuoid/.github org-rules.md" --label "$FILE" "$RULES" <(between); then
           echo "::error file=$FILE::org-rules: the copy between the markers differs from pixtuoid/.github's .github/actions/org-rules/org-rules.md; copy that file between them verbatim"
           exit 1
         fi

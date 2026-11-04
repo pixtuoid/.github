@@ -43,6 +43,11 @@ assert_check "$begin
 ${copy/Never force-push/Sometimes force-push}
 $end
 " fail "a copy that changed a word"
+assert_check "$begin
+$copy
+
+$end
+" fail "a copy with a blank line gained before the end marker"
 assert_check "# Repo, no markers
 $copy
 " fail "a guide without the markers"
@@ -61,4 +66,4 @@ assert_check "$begin
 $end
 " fail "an empty copy"
 FILE="$work/missing.md" RULES="$rules" bash -eo pipefail -c "$check_script" >/dev/null 2>&1 && fail "passed a missing guide"
-echo "org-rules: 8 cases"
+echo "org-rules: 9 cases"
