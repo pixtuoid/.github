@@ -1,0 +1,3 @@
+reviews:
+  # Its default adds to the PR body, which the review judges as the author's.
+  high_level_summary: false
