@@ -236,4 +236,4 @@ agents = json.loads(args[args.index("--agents") + 1])
 for agent in ("correctness-reviewer", "design-reviewer", "verifier"):
     assert agent in os.environ["PROMPT"], f"the prompt names no {agent}"
     assert isinstance(agents[agent]["tools"], list), f"--agents gives {agent} no tools"
-' || fail "claude_args: --settings or --agents does not split into JSON with each spawned agent's tools"
+' || fail "claude_args: --settings and --agents must split into JSON that gives each listed agent its tools"
