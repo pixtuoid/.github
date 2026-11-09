@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# claude-review.yml's scope step against fixed API pages; run from the repo root.
+# claude-review.yml's scope and diff steps against fixtures, and its claude_args
+# through claude-code-action's parse; run from the repo root.
 set -euo pipefail
 
 fail() {
@@ -63,8 +64,8 @@ comment() {
 }
 page() { jq -sc . >"$PAGES/$1.$2.json"; }
 
-# Runs the step over the pages a case wrote and sets $since, $comments and
-# $recheck.
+# Runs the step over the pages a case wrote and sets $since, $dir, $comments
+# and $recheck.
 run_step() {
     local out="$work/$1.out"
     : >"$out"
@@ -72,6 +73,7 @@ run_step() {
         VERDICTS="$verdicts_jq" COMMENT="$comment_jq" RECHECK="$recheck_jq" \
         bash --noprofile --norc -eo pipefail -c "$script" || fail "$1: the step failed"
     since="$(sed -n 's/^since=//p' "$out")"
+    dir="$(sed -n 's/^dir=//p' "$out")"
     comments="$(sed -n 's/^comments=//p' "$out")"
     recheck="$(sed -n 's/^recheck=//p' "$out")"
     [[ -f "$comments" ]] || fail "$1: no comments file at '$comments'"
@@ -218,3 +220,58 @@ got="$(files "$since")"
 [[ "$got" == ".gitattributes a a p2 " ]] || fail "diff since: want p2's .gitattributes, a and p2 and the merge's resolution of a, got: $got"
 grep -qx '+two' "$since" || fail "diff since: the PR's own .gitattributes hid p2's hunk"
 grep -q "^commit $merge" "$since" || fail "diff since: the merge commit is not listed"
+
+# claude-code-action splits claude_args with shell-quote before the CLI reads
+# --settings and --agents as JSON, and review.yml runs this workflow from main,
+# so a claude_args the split breaks fails every repo's review only once it
+# lands, as an apostrophe in --agents would have (.github#28).
+action='.jobs.claude-review.steps[] | select(.uses // "" | test("^anthropics/claude-code-action@"))'
+action_sha="$(yq -e -r "$action | .uses | sub(\"^[^@]*@\"; \"\")" "$WORKFLOW_FILE")"
+raw="https://raw.githubusercontent.com/anthropics/claude-code-action/$action_sha"
+curl -fsSL "$raw/base-action/src/parse-sdk-options.ts" -o "$work/parse-sdk-options.ts"
+# The blob the parse below mirrors: another may split claude_args differently.
+parser_blob=d9a5e74bab57d2efa9f082b46bae3c348f7c2d0b
+[[ "$(git hash-object "$work/parse-sdk-options.ts")" == "$parser_blob" ]] ||
+    fail "claude_args: base-action/src/parse-sdk-options.ts changed at $action_sha: mirror it below, then pin its blob"
+# action.yml's `bun install` runs at the action's root, so the root bun.lock,
+# not base-action's, resolves its shell-quote.
+shell_quote="$(curl -fsSL "$raw/bun.lock" | sed -n 's/^ *"shell-quote": \["\(shell-quote@[^"]*\)".*/\1/p')"
+npm install --prefix "$work/npm" --no-audit --no-fund "$shell_quote" >/dev/null
+
+new_case claude-args
+run_step claude-args
+claude_args="$(yq -e -r "$action | .with.claude_args" "$WORKFLOW_FILE")"
+# The runner evaluates the expression before the action reads claude_args.
+claude_args="${claude_args//"\${{ steps.scope.outputs.dir }}"/$dir}"
+agents="$(CLAUDE_ARGS="$claude_args" NODE_PATH="$work/npm/node_modules" node -e '
+const { parse } = require("shell-quote");
+const SHELL_META_PAIRS = [["(", "\ue000"], [")", "\ue001"], ["|", "\ue002"], ["&", "\ue003"], [";", "\ue004"], ["<", "\ue005"], [">", "\ue006"]];
+const SHELL_META_ESCAPE = new Map(SHELL_META_PAIRS);
+const SHELL_META_UNESCAPE = new Map(SHELL_META_PAIRS.map(([k, v]) => [v, k]));
+const escapeShellMeta = (s) => s.replace(/[()|&;<>]/g, (c) => SHELL_META_ESCAPE.get(c));
+const unescapeShellMeta = (s) => s.replace(/[\ue000-\ue006]/g, (c) => SHELL_META_UNESCAPE.get(c));
+const stripShellComments = (s) => s.split("\n").filter((line) => !line.trim().startsWith("#")).join("\n");
+const args = parse(escapeShellMeta(stripShellComments(process.env.CLAUDE_ARGS)))
+    .map((arg) => {
+        if (typeof arg === "string") return unescapeShellMeta(arg);
+        if (typeof arg === "object" && arg !== null && "pattern" in arg) return unescapeShellMeta(arg.pattern);
+        return undefined;
+    })
+    .filter((arg) => typeof arg === "string");
+// Neither flag is in ACCUMULATING_FLAGS, so the last one takes the token after
+// it unless that is empty or a flag.
+const value = (flag) => {
+    const i = args.lastIndexOf("--" + flag);
+    const next = args[i + 1];
+    return i >= 0 && next && !next.startsWith("--") ? next : undefined;
+};
+JSON.parse(value("settings"));
+console.log(JSON.stringify(JSON.parse(value("agents"))));
+')" || fail "claude_args: claude-code-action would not pass --settings and --agents as JSON"
+prompt="$(yq -e -r "$action | .with.prompt" "$WORKFLOW_FILE")"
+# The agents the prompt spawns.
+for agent in correctness-reviewer design-reviewer verifier; do
+    [[ "$prompt" == *"$agent"* ]] || fail "claude_args: the prompt names no $agent"
+    jq -e --arg agent "$agent" '.[$agent].tools | type == "array" and all(type == "string")' <<<"$agents" >/dev/null ||
+        fail "claude_args: --agents gives $agent no tools"
+done
