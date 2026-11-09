@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# claude-review.yml's scope step against fixed API pages; run from the repo root.
+# claude-review.yml's scope and diff steps against fixtures, and the JSON its
+# claude_args carries; run from the repo root.
 set -euo pipefail
 
 fail() {
@@ -218,3 +219,21 @@ got="$(files "$since")"
 [[ "$got" == ".gitattributes a a p2 " ]] || fail "diff since: want p2's .gitattributes, a and p2 and the merge's resolution of a, got: $got"
 grep -qx '+two' "$since" || fail "diff since: the PR's own .gitattributes hid p2's hunk"
 grep -q "^commit $merge" "$since" || fail "diff since: the merge commit is not listed"
+
+# claude-code-action splits claude_args like a shell before the CLI reads
+# --settings and --agents as JSON, and review.yml runs this workflow from main,
+# so an apostrophe ending a quote early (.github#28) breaks every repo's review
+# once it lands. shlex stands in for the action's shell-quote, without parity
+# on what our args don't use, such as $ expansion or # comments.
+action='.jobs.claude-review.steps[] | select(.uses // "" | test("^anthropics/claude-code-action@"))'
+claude_args="$(yq -e -r "$action | .with.claude_args" "$WORKFLOW_FILE")"
+prompt="$(yq -e -r "$action | .with.prompt" "$WORKFLOW_FILE")"
+CLAUDE_ARGS="$claude_args" PROMPT="$prompt" python3 -I -c '
+import json, os, shlex
+args = shlex.split(os.environ["CLAUDE_ARGS"])
+json.loads(args[args.index("--settings") + 1])
+agents = json.loads(args[args.index("--agents") + 1])
+for agent in ("correctness-reviewer", "design-reviewer", "verifier"):
+    assert agent in os.environ["PROMPT"], f"the prompt names no {agent}"
+    assert isinstance(agents[agent]["tools"], list), f"--agents gives {agent} no tools"
+' || fail "claude_args: --settings and --agents must split into JSON that gives each listed agent its tools"
