@@ -65,7 +65,7 @@ comment() {
 page() { jq -sc . >"$PAGES/$1.$2.json"; }
 
 # Runs the step over the pages a case wrote and sets $since, $comments,
-# $recheck and $unread.
+# $recheck and $verdicts.
 run_step() {
     local out="$work/$1.out"
     : >"$out"
@@ -75,10 +75,10 @@ run_step() {
     since="$(sed -n 's/^since=//p' "$out")"
     comments="$(sed -n 's/^comments=//p' "$out")"
     recheck="$(sed -n 's/^recheck=//p' "$out")"
-    unread="$(sed -n 's/^unread=//p' "$out")"
+    verdicts="$(sed -n 's/^dir=//p' "$out")/verdicts.jsonl"
     [[ -f "$comments" ]] || fail "$1: no comments file at '$comments'"
     [[ -f "$recheck" ]] || fail "$1: no recheck file at '$recheck'"
-    [[ -f "$unread" ]] || fail "$1: no unread file at '$unread'"
+    [[ -f "$verdicts" ]] || fail "$1: no verdicts file at '$verdicts'"
 }
 
 # The finding ids of the recheck file, each with its replies' ids.
@@ -95,12 +95,13 @@ new_case() {
     for kind in commits reviews comments; do printf '' | page "$kind" 1; done
 }
 
-# The anchor, and the anchoring review's unread items as the next scope reads them.
+# The anchor, and the unit ids the newest verdict lists as judged.
 assert_since() {
-    local name="$1" want="$2" want_unread="${3:-}"
+    local name="$1" want="$2" want_read="${3:-}" got
     run_step "$name"
     [[ "$since" == "$want" ]] || fail "$name: since '$since', want '$want'"
-    [[ "$(cat "$unread")" == "$want_unread" ]] || fail "$name: unread '$(cat "$unread")', want '$want_unread'"
+    got="$(jq -r -s 'last // {read: []} | .read | join(" ")' "$verdicts")"
+    [[ "$got" == "$want_read" ]] || fail "$name: read '$got', want '$want_read'"
 }
 
 bot='github-actions[bot]'
@@ -133,61 +134,30 @@ new_case no-verdict
     review "$bot" 1 'Blocking: 0'
     review "$bot" 2 ''
     review "$bot" 3 $'**Verdict:** fine\nBlocking: 0'
-    review "$bot" 4 'Blocking: incomplete'
+    review "$bot" 4 $'Blocking: incomplete\n\n**Verdict:** read nothing'
 } | page reviews 1
-assert_since no-verdict "$(sha 1)"
+assert_since no-verdict "$(sha 4)"
 
-# The parse that anchors on step 3's format: a unit line, a twin group's
-# included, and a blank or whitespace-only line between them drops neither.
+# Step 3's `Read:` list, as VERDICTS parses it: each unit line's id, a twin
+# group's included, past blank lines; a sub-bullet, prose or an item line
+# is no id, so the unit it stands for stays in scope.
 new_case incomplete-listed
 { commit 1; commit 2; } | page commits 1
 {
     review "$bot" 1 'Blocking: 0'
-    review "$bot" 2 $'Blocking: incomplete\n\nUnread:\n- 0123456789ab src/x.rs:+40,3\n \t\n- 0123456789ac.2 b.rs:+1,1,+9,1\n'
+    review "$bot" 2 $'Blocking: incomplete\n\nRead:\n- 0123456789ab src/x.rs:+40,3\n \t\n- 0123456789ac.2 b.rs:+1,1,+9,1\n  - 0123456789ad a.rs:+12,1\n- a.rs: fn foo\nthen prose\n'
 } | page reviews 1
-assert_since incomplete-listed "$(sha 2)" $'- 0123456789ab src/x.rs:+40,3\n- 0123456789ac.2 b.rs:+1,1,+9,1'
+assert_since incomplete-listed "$(sha 2)" '0123456789ab 0123456789ac.2'
 
-# Any other line after the header, a sub-bullet, a continuation or prose,
-# anchors nothing, so no unit past it is skipped.
-new_case incomplete-interrupted
-{ commit 1; commit 2; } | page commits 1
-{
-    review "$bot" 1 'Blocking: 0'
-    review "$bot" 2 $'Blocking: incomplete\n\nUnread:\n- 0123456789ab a.rs:+1,1\n  - 0123456789ac a.rs:+12,1\n- 0123456789ad b.rs:+1,1'
-    review "$bot" 2 $'Blocking: incomplete\n\nUnread:\n- 0123456789ab a.rs:+1,1\n  (read only around its hunk)\n- 0123456789ad b.rs:+1,1' 3
-    review "$bot" 2 $'Blocking: incomplete\n\nUnread:\n- 0123456789ab a.rs:+1,1\n\nthen prose' 4
-} | page reviews 1
-assert_since incomplete-interrupted "$(sha 1)"
-
-# One malformed line, an item instead of a unit included, and the list anchors
-# nothing, so nothing in it is skipped; nor does an empty list.
-new_case incomplete-malformed
-{ commit 1; commit 2; } | page commits 1
-{
-    review "$bot" 1 'Blocking: 0'
-    review "$bot" 2 $'Blocking: incomplete\n\nUnread:\n- 0123456789ab a.rs:+1,1\n- a.rs: fn foo'
-    review "$bot" 2 $'Blocking: incomplete\n\nUnread:\n- files still to read' 3
-    review "$bot" 2 $'Blocking: incomplete\n\nUnread:\n' 4
-} | page reviews 1
-assert_since incomplete-malformed "$(sha 1)"
-
-# The backlog is the anchoring review's: a force-push that drops the newest
-# verdict's commit falls back to an older one, and to its list.
+# A force-push leaves the anchor at the newest verdict still in the PR; the
+# replay below skips the dropped one's list too.
 new_case incomplete-force-pushed
 { commit 1; commit 3; } | page commits 1
 {
-    review "$bot" 1 $'Blocking: incomplete\n\nUnread:\n- 0000000000a1 a.rs:+1,1'
-    review "$bot" 2 $'Blocking: incomplete\n\nUnread:\n- 0000000000b2 b.rs:+1,1'
+    review "$bot" 1 $'Blocking: incomplete\n\nRead:\n- 0000000000a1 a.rs:+1,1'
+    review "$bot" 2 $'Blocking: incomplete\n\nRead:\n- 0000000000b2 b.rs:+1,1'
 } | page reviews 1
-assert_since incomplete-force-pushed "$(sha 1)" '- 0000000000a1 a.rs:+1,1'
-
-new_case complete-after-incomplete
-{ commit 1; commit 2; } | page commits 1
-{
-    review "$bot" 2 $'Blocking: incomplete\n\nUnread:\n- 0000000000a1 a.rs:+1,1'
-    review "$bot" 2 'Blocking: 0' 3
-} | page reviews 1
-assert_since complete-after-incomplete "$(sha 2)"
+assert_since incomplete-force-pushed "$(sha 1)" '0000000000b2'
 
 new_case human
 { commit 1; commit 2; } | page commits 1
@@ -253,48 +223,71 @@ g update-ref refs/remotes/origin/main main && g switch -q pr
 # The PR moves on to p3 after the event the step runs for.
 echo three >"$repo/p3" && g add p3 && g commit -qm p3
 
-# Runs the step at head $2 with the anchor $3 and that review's unread lines
-# $4, in $repo; echoes the scope's path, and sets $whole to the whole diff's.
+# A verdict as VERDICTS writes it: verdict <commit> <incomplete> [judged id…].
+verdict() {
+    local c="$1" inc="$2"
+    shift 2
+    jq -nc --arg c "$c" --argjson inc "$inc" '{commit_id: $c, submitted_at: "", incomplete: $inc, read: $ARGS.positional}' --args "$@"
+}
+# Runs the step as run $1 at head $2 in $repo, over the verdicts on stdin;
+# units_of and whole_of read its outputs.
 run_diff() {
     local dir="$work/diff-$1"
     mkdir -p "$dir"
     : >"$dir/out"
-    printf '%s' "${4:-}" >"$dir/unread.md"
-    (cd "$repo" && BASE_REF=main HEAD="$2" SINCE="$3" DIR="$dir" UNREAD="$dir/unread.md" \
-        UNITS="$units_py" GITHUB_OUTPUT="$dir/out" \
+    cat >"$dir/verdicts.jsonl"
+    g rev-list "origin/main..$2" >"$dir/commits"
+    (cd "$repo" && BASE_REF=main HEAD="$2" DIR="$dir" UNITS="$units_py" GITHUB_OUTPUT="$dir/out" \
         bash --noprofile --norc -eo pipefail -c "$diff_script") || fail "diff $1: the step failed"
 }
-scope_of() { sed -n 's/^scope=//p' "$work/diff-$1/out"; }
+units_of() { sed -n 's/^units=//p' "$work/diff-$1/out"; }
 whole_of() { sed -n 's/^whole=//p' "$work/diff-$1/out"; }
-# The paths a scope names, sorted.
-paths() { sed -E 's/^- [^ ]+ ([^:]+):.*/\1/' "$1" | sort | tr '\n' ' '; }
-# The id of the unit at $2 in the scope of run $1.
-id_of() { awk -v p="$2" '$3 ~ "^" p ":" { print $2 }' "$(scope_of "$1")"; }
+# The paths the scope of run $1 names, sorted.
+paths() { sed -E 's/^- [^ ]+ (.*):[^:]*$/\1/' "$(units_of "$1")" | sort | tr '\n' ' '; }
+# The ids of the units in file $2 in the scope of run $1, one per line.
+ids_of() { awk -v p="$2" 'substr($0, index($0, $3)) ~ "^" p ":" { print $2 }' "$(units_of "$1")"; }
 
-run_diff whole "$merge" ""
-got="$(paths "$(scope_of whole)")"
-[[ "$got" == ".gitattributes a p1 p2 " ]] || fail "diff whole: with no anchor every unit is in scope, got: $got"
+run_diff whole "$merge" </dev/null
+[[ "$(paths whole)" == ".gitattributes a p1 p2 " ]] || fail "diff whole: with no verdict every unit is in scope, got: $(paths whole)"
+grep -q ' p1:+1,1$' "$(units_of whole)" || fail "diff whole: the PR's own .gitattributes turned p1's hunk into a file unit"
 grep -qx '+one' "$(whole_of whole)" || fail "diff whole: the PR's own .gitattributes hid p1's hunk"
+p1_id="$(ids_of whole p1)"
 
-# A unit the merge of main left alone keeps its id, so the anchor judged it.
-run_diff since "$merge" "$p1"
-got="$(paths "$(scope_of since)")"
-[[ "$got" == ".gitattributes a p2 " ]] || fail "diff since: want the units new since p1, got: $got"
-grep -qx '+one' "$(whole_of since)" || fail "diff since: the whole diff lacks p1's hunk"
+# A unit the merge of main left alone keeps its id, so a complete review of p1
+# judged it.
+verdict "$p1" false | run_diff complete "$merge"
+[[ "$(paths complete)" == ".gitattributes a p2 " ]] || fail "diff complete: want the units new since p1, got: $(paths complete)"
+grep -qx '+one' "$(whole_of complete)" || fail "diff complete: the whole diff lacks p1's hunk"
 
-# An id the anchoring review never had adds nothing: the scope is built from
-# the workflow's own units.
-run_diff since-bogus "$merge" "$p1" '- 0123456789ab p9:+1,1'
-cmp -s "$(scope_of since)" "$(scope_of since-bogus)" || fail "diff since-bogus: an invented id changed the scope"
+# An incomplete review takes out only what it lists as judged: a unit it left
+# off, or an id it was never given, keeps p1 in scope.
+verdict "$p1" true | run_diff left-off "$merge"
+[[ "$(paths left-off)" == ".gitattributes a p1 p2 " ]] || fail "diff left-off: want p1 kept, got: $(paths left-off)"
+verdict "$p1" true 0123456789ab | run_diff invented "$merge"
+[[ "$(paths invented)" == ".gitattributes a p1 p2 " ]] || fail "diff invented: want p1 kept, got: $(paths invented)"
+verdict "$p1" true "$p1_id" | run_diff listed "$merge"
+[[ "$(paths listed)" == ".gitattributes a p2 " ]] || fail "diff listed: want p1 judged, got: $(paths listed)"
 
-p1_unit="$(grep ' p1:' "$(scope_of whole)")"
-run_diff since-unread "$merge" "$p1" "$p1_unit"
-got="$(paths "$(scope_of since-unread)")"
-[[ "$got" == ".gitattributes a p1 p2 " ]] || fail "diff since-unread: want p1's unit back, left unread, got: $got"
+# Reruns at one head shrink the scope by what each lists, and a verdict on a
+# commit a force-push dropped is skipped.
+a_id="$(ids_of whole a)" p2_id="$(ids_of whole p2)"
+{
+    verdict "$merge" true "$a_id" "$p1_id"
+    verdict 0000000000000000000000000000000000000009 true "$p2_id"
+    verdict "$merge" true "$p2_id"
+} | run_diff reruns "$merge"
+[[ "$(paths reruns)" == ".gitattributes " ]] || fail "diff reruns: want only .gitattributes left, got: $(paths reruns)"
+
+# The format step 3 asks for, a line the step wrote, parses back to its id.
+new_case read-back
+commit 1 | page commits 1
+review "$bot" 1 "$(printf 'Blocking: incomplete\n\nRead:\n%s' "$(grep ' p1:' "$(units_of whole)")")" | page reviews 1
+assert_since read-back "$(sha 1)" "$p1_id"
 
 # A push that shifts a hunk's lines keeps its id when its context holds, and an
 # edit next to a hunk changes it; twins are one unit whose id counts them, so
-# one more twin re-reads the group.
+# one more twin re-reads the group; a mode change keys the file's first hunk;
+# a path with " b/" in it keeps its name.
 repo="$work/shift"
 git init -q -b main "$repo"
 seq 1 40 | sed 's/^/l/' >"$repo/s"
@@ -303,27 +296,31 @@ seq 1 40 | sed 's/^/l/' >"$repo/s"
 for _ in 1 2 3; do printf '\n\n\n\nfn a() {\n    x\n}\n\n\n\n\n'; done >"$repo/w"
 # The same change in two different items is two units, not twins.
 printf 'fn a() {\n    x\n}\n\n\n\n\n\n\n\nfn b() {\n    x\n}\n' >"$repo/v"
-g add s w v && g commit -qm b && g update-ref refs/remotes/origin/main main
+mkdir -p "$repo/d b" && echo old >"$repo/d b/c" && echo old >"$repo/x.sh"
+g add s w v "d b/c" x.sh && g commit -qm b && g update-ref refs/remotes/origin/main main
 g switch -qc pr
 sed -i.bak -e 's/^l10$/x10/' -e 's/^l30$/x30/' "$repo/s" && rm "$repo/s.bak"
 awk '/^    x$/ && n < 2 { n++; print "    y"; next } { print }' "$repo/w" >"$repo/w.new" && mv "$repo/w.new" "$repo/w"
 sed -i.bak 's/^    x$/    y/' "$repo/v" && rm "$repo/v.bak"
-g add s w v && g commit -qm one && one="$(g rev-parse HEAD)"
-run_diff one "$one" ""
-grep -Eq '^- [0-9a-f]{12} w:\+1,6$' "$(scope_of one)" &&
-    fail "diff one: twins split into units"
-twins="$(id_of one w)"
-[[ "$twins" == *.2 ]] || fail "diff one: want the two twins as one unit counting them, got '$twins'"
-[[ "$(id_of one v | wc -l | tr -d ' ')" == 2 && "$(id_of one v)" != *.* ]] ||
-    fail "diff one: the same change in two items must be two units, got '$(id_of one v)'"
-x30="$(id_of one s | tail -n 1)"
+echo new >"$repo/d b/c" && echo new >"$repo/x.sh"
+g add s w v "d b/c" x.sh && g commit -qm one && one="$(g rev-parse HEAD)"
+run_diff one "$one" </dev/null
+[[ "$(grep -c ' w:' "$(units_of one)")" == 1 ]] || fail "diff one: twins split into units"
+[[ "$(ids_of one w)" == *.2 ]] || fail "diff one: want the two twins as one unit counting them, got '$(ids_of one w)'"
+[[ "$(ids_of one v | wc -l | tr -d ' ')" == 2 && "$(ids_of one v)" != *.* ]] ||
+    fail "diff one: the same change in two items must be two units, got '$(ids_of one v)'"
+grep -q ' d b/c:+1,1$' "$(units_of one)" || fail "diff one: a path with \" b/\" lost its name"
+x30="$(ids_of one s | tail -n 1)"
 { printf 't1\nt2\nt3\n'; cat "$repo/s"; } >"$repo/s.new" && mv "$repo/s.new" "$repo/s"
 awk '/^    x$/ { print "    y"; next } { print }' "$repo/w" >"$repo/w.new" && mv "$repo/w.new" "$repo/w"
-g add s w && g commit -qm two && two="$(g rev-parse HEAD)"
-run_diff two "$two" "$one"
-grep -q " $x30 " "$(scope_of two)" && fail "diff two: a shifted hunk whose context held came back"
-grep -q '^- [0-9a-f]\{12\} s:+1,' "$(scope_of two)" || fail "diff two: the new hunk at the top of s is not in scope"
-[[ "$(id_of two w)" == *.3 ]] || fail "diff two: one more twin must re-read the group, got '$(id_of two w)'"
+chmod +x "$repo/x.sh"
+g add s w x.sh && g commit -qm two && two="$(g rev-parse HEAD)"
+verdict "$one" false | run_diff two "$two"
+grep -q " $x30 " "$(units_of two)" && fail "diff two: a shifted hunk whose context held came back"
+grep -q ' s:+1,' "$(units_of two)" || fail "diff two: the new hunk at the top of s is not in scope"
+[[ "$(ids_of two w)" == *.3 ]] || fail "diff two: one more twin must re-read the group, got '$(ids_of two w)'"
+grep -q ' x.sh:' "$(units_of two)" || fail "diff two: a mode change left the file's unit out of scope"
+grep -q ' v:' "$(units_of two)" && fail "diff two: an untouched file came back"
 
 # claude-code-action splits claude_args like a shell before the CLI reads
 # --settings and --agents as JSON, and review.yml runs this workflow from main,
@@ -343,9 +340,9 @@ for agent in ("correctness-reviewer", "design-reviewer", "verifier"):
     assert isinstance(agents[agent]["tools"], list), f"--agents gives {agent} no tools"
 ' || fail "claude_args: --settings and --agents must split into JSON that gives each listed agent its tools"
 
-# Step 3's `Unread:` format is what the model writes; the incomplete-* cases
-# hold VERDICTS to it, and this holds the prompt to the same format, so a
-# reworded prompt can't leave every incomplete review anchoring nothing.
+# Step 3's `Read:` format is what the model writes; read-back holds VERDICTS
+# to a line the diff step wrote, and this holds the prompt to the same format,
+# so a reworded prompt can't leave every unit in scope forever.
 # shellcheck disable=SC2016 # the backticks are the prompt's own, not expansions
-[[ "$prompt" == *'an incomplete one ends with an `Unread:` line, then the `- <id> <path>:<range>` line of each scope unit'* ]] ||
-    fail "prompt: step 3 no longer asks for the \`Unread:\` format the incomplete-* cases parse"
+[[ "$prompt" == *'an incomplete one ends with a `Read:` line, then the `- <id> <path>:<range>` line of each scope unit'* ]] ||
+    fail "prompt: step 3 no longer asks for the \`Read:\` format VERDICTS parses"
