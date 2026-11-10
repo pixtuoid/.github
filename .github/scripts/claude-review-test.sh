@@ -138,23 +138,24 @@ new_case no-verdict
 assert_since no-verdict "$(sha 1)"
 
 # The parse that anchors on step 3's format: a `path:line` item is well
-# formed, and a blank line between items drops neither.
+# formed, and a blank or whitespace-only line between items drops neither.
 new_case incomplete-listed
 { commit 1; commit 2; } | page commits 1
 {
     review "$bot" 1 'Blocking: 0'
-    review "$bot" 2 $'Blocking: incomplete\n\nUnread:\n- src/x.rs:40: fn row_for\n\n- b.rs: impl Bar\n'
+    review "$bot" 2 $'Blocking: incomplete\n\nUnread:\n- src/x.rs:40: fn row_for\n \t\n- b.rs: impl Bar\n'
 } | page reviews 1
 assert_since incomplete-listed "$(sha 2)" $'- src/x.rs:40: fn row_for\n- b.rs: impl Bar'
 
-# Any other line after the header, a sub-bullet or prose, anchors nothing, so
-# no item past it is skipped.
+# Any other line after the header, a sub-bullet, a continuation or prose,
+# anchors nothing, so no item past it is skipped.
 new_case incomplete-interrupted
 { commit 1; commit 2; } | page commits 1
 {
     review "$bot" 1 'Blocking: 0'
-    review "$bot" 2 $'Blocking: incomplete\n\nUnread:\n- a.rs: fn a\n  (read only around its hunk)\n- b.rs: fn b'
-    review "$bot" 2 $'Blocking: incomplete\n\nUnread:\n- a.rs: fn a\n\nthen prose' 3
+    review "$bot" 2 $'Blocking: incomplete\n\nUnread:\n- a.rs: fn a\n  - a.rs:12: detail\n- b.rs: fn b'
+    review "$bot" 2 $'Blocking: incomplete\n\nUnread:\n- a.rs: fn a\n  (read only around its hunk)\n- b.rs: fn b' 3
+    review "$bot" 2 $'Blocking: incomplete\n\nUnread:\n- a.rs: fn a\n\nthen prose' 4
 } | page reviews 1
 assert_since incomplete-interrupted "$(sha 1)"
 
@@ -297,11 +298,9 @@ for agent in ("correctness-reviewer", "design-reviewer", "verifier"):
     assert isinstance(agents[agent]["tools"], list), f"--agents gives {agent} no tools"
 ' || fail "claude_args: --settings and --agents must split into JSON that gives each listed agent its tools"
 
-# Step 3's `Unread:` format is what the model writes and VERDICTS parses: a
-# change to either side without the other anchors nothing, and every
-# incomplete review would read the whole diff again.
+# Step 3's `Unread:` format is what the model writes; the incomplete-* cases
+# hold VERDICTS to it, and this holds the prompt to the same format, so a
+# reworded prompt can't leave every incomplete review anchoring nothing.
 # shellcheck disable=SC2016 # the backticks are the prompt's own, not expansions
 [[ "$prompt" == *'an incomplete one ends with an `Unread:` line, then a `- <path>: <item>` line per item'* ]] ||
-    fail "prompt: step 3 no longer asks for the \`Unread:\` format VERDICTS parses"
-[[ "$verdicts_jq" == *'index("Unread:")'* && "$verdicts_jq" == *'test("^- [^ ]+: [^ ]")'* ]] ||
-    fail "VERDICTS: no longer parses the \`Unread:\` format step 3 asks for"
+    fail "prompt: step 3 no longer asks for the \`Unread:\` format the incomplete-* cases parse"
