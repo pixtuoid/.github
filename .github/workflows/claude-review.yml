@@ -97,7 +97,7 @@ jobs:
           } >>"$GITHUB_OUTPUT"
       # The MCP server's get_commit sends file stats and no patch unless asked
       # (github/github-mcp-server@c59e8c1, pkg/github/repositories.go:54-58), so
-      # the scope's diff is written here, whole, for the reviewers to take it from.
+      # the PR's whole diff is written here for the reviewers to take it from.
       - name: Write the whole diff and the scope's hunks
         id: diff
         env:

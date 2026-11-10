@@ -282,6 +282,11 @@ got="$(paths "$(scope_of since)")"
 [[ "$got" == ".gitattributes a p2 " ]] || fail "diff since: want the units new since p1, got: $got"
 grep -qx '+one' "$(whole_of since)" || fail "diff since: the whole diff lacks p1's hunk"
 
+# An id the anchoring review never had adds nothing: the scope is built from
+# the workflow's own units.
+run_diff since-bogus "$merge" "$p1" '- 0123456789ab p9:+1,1'
+cmp -s "$(scope_of since)" "$(scope_of since-bogus)" || fail "diff since-bogus: an invented id changed the scope"
+
 p1_unit="$(grep ' p1:' "$(scope_of whole)")"
 run_diff since-unread "$merge" "$p1" "$p1_unit"
 got="$(paths "$(scope_of since-unread)")"
