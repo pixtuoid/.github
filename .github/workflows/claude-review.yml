@@ -50,15 +50,16 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           # An incomplete review anchors too, so the next one reads only what it
           # left unread instead of the whole diff again. One parse decides both:
-          # an incomplete review anchors only when its `Unread:` list is
-          # non-empty and every item is `- <path>: <item>`, so a dropped or
-          # malformed list can't skip a part, and no prose rides into a prompt.
+          # the summary ends with its `Unread:` list, and it anchors only when
+          # every non-blank line after that header is a `- <path>: <item>`, so
+          # a dropped, malformed or interrupted list can't skip a part, and no
+          # prose rides into a prompt.
           VERDICTS: >-
             .[] | select(.user.login == "github-actions[bot]")
             | (.body | split("\n")) as $l
             | ($l[0] // "") as $v
             | ($l | index("Unread:")) as $u
-            | (if $u == null then [] else $l[$u + 1:] | .[:(map(startswith("- ")) | index(false)) // length] end) as $items
+            | (if $u == null then [] else $l[$u + 1:] | map(select(test("[^ \t]"))) end) as $items
             | select(($v | test("^Blocking: [0-9]+$")) or ($v == "Blocking: incomplete" and ($items | length > 0 and all(test("^- [^ ]+: [^ ]")))))
             | {commit_id, submitted_at, unread: (if $v == "Blocking: incomplete" then $items else [] end)} | @json
           COMMENT: >-
@@ -156,7 +157,7 @@ jobs:
               - Wiring: every new field, parameter, constant or gate has a live consumer in the same diff; each item anywhere that reads or writes a field, variant or return meaning a hunk changes, or the state an invariant it changes governs, is checked against the change, listing those changes; and every new or changed test fails when the code it names is wrong.
               - Claims: each checkable claim the PR's title and body make holds at the head, and a claim the head contradicts is located where the head contradicts it. A behavior or published-contract change the body does not state is a non-blocking finding.
               - Must-run: each must-run item REVIEW.md lists that the PR's diff touches has its result in the PR body, and one without is blocking.
-            The newest commit of this PR that an automated review already judged is ${{ steps.scope.outputs.since || 'none' }}. The scope is the diff in ${{ steps.diff.outputs.diff }}: the PR's own commits after it, where a merge of the base branch shows only its conflict resolutions, or the PR's whole diff when it is none; and each item ${{ steps.scope.outputs.unread }} lists, which the newest review left unread.
+            The newest commit of this PR that an automated review already judged is ${{ steps.scope.outputs.since || 'none' }}. The scope is the diff in ${{ steps.diff.outputs.diff }}: the PR's own commits after it, where a merge of the base branch shows only its conflict resolutions, or the PR's whole diff when it is none; and each item ${{ steps.scope.outputs.unread }} lists, which the review it anchors on left unread.
             Each line of ${{ steps.scope.outputs.recheck }} is an earlier finding with its recent replies. Where one of those replies says the head no longer has the defect or never had it, and no comment after that reply raised it again, the finding is a recheck: a candidate that the head still has its defect, given to its verifier with those replies. A finding that a kept recheck raised again is never a recheck again.
             1. Spawn the correctness-reviewer and the design-reviewer in parallel, each given the PR, the scope, the PR's whole diff in ${{ steps.diff.outputs.whole }} as the context every item is judged against, the base commit and the contract verbatim. Merge duplicates and add the rechecks, then spawn one verifier per candidate, given the PR, the base commit and the contract verbatim.
             2. Post each kept finding in the contract's format on its line of the PR's diff with mcp__github_inline_comment__create_inline_comment, commit_id the head, a kept recheck linking the comment that first raised it. A finding whose location is off the diff goes on the first head-side line the diff adds or changes in its file, or else on the first such line of the diff's first file that has one, its body opening with its location; where the diff adds no line, it goes on the first line the diff deletes, side LEFT, and where it neither adds nor deletes a line, it stays in the summary.

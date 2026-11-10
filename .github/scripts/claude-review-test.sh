@@ -137,15 +137,26 @@ new_case no-verdict
 } | page reviews 1
 assert_since no-verdict "$(sha 1)"
 
-# The step-3 format the model writes, against the parse that anchors on it:
-# a `path:line` item is well formed, and the prose after the list is not read.
+# The parse that anchors on step 3's format: a `path:line` item is well
+# formed, and a blank line between items drops neither.
 new_case incomplete-listed
 { commit 1; commit 2; } | page commits 1
 {
     review "$bot" 1 'Blocking: 0'
-    review "$bot" 2 $'Blocking: incomplete\n\nUnread:\n- src/x.rs:40: fn row_for\n- b.rs: impl Bar\n\nthen prose'
+    review "$bot" 2 $'Blocking: incomplete\n\nUnread:\n- src/x.rs:40: fn row_for\n\n- b.rs: impl Bar\n'
 } | page reviews 1
 assert_since incomplete-listed "$(sha 2)" $'- src/x.rs:40: fn row_for\n- b.rs: impl Bar'
+
+# Any other line after the header, a sub-bullet or prose, anchors nothing, so
+# no item past it is skipped.
+new_case incomplete-interrupted
+{ commit 1; commit 2; } | page commits 1
+{
+    review "$bot" 1 'Blocking: 0'
+    review "$bot" 2 $'Blocking: incomplete\n\nUnread:\n- a.rs: fn a\n  (read only around its hunk)\n- b.rs: fn b'
+    review "$bot" 2 $'Blocking: incomplete\n\nUnread:\n- a.rs: fn a\n\nthen prose' 3
+} | page reviews 1
+assert_since incomplete-interrupted "$(sha 1)"
 
 # One malformed item and the list anchors nothing, so nothing in it is skipped.
 new_case incomplete-malformed
@@ -238,8 +249,7 @@ g update-ref refs/remotes/origin/main main && g switch -q pr
 # The PR moves on to p3 after the event the step runs for.
 echo three >"$repo/p3" && g add p3 && g commit -qm p3
 
-# Runs the step with the scope after commit $1 and echoes the diff's path;
-# $whole is the whole diff's.
+# Runs the step with the scope after commit $1 and echoes the diff's path.
 run_diff() {
     local dir="$work/diff-$2"
     mkdir -p "$dir"
@@ -247,7 +257,6 @@ run_diff() {
     (cd "$repo" && BASE_REF=main HEAD="$merge" \
         SINCE="$1" DIR="$dir" GITHUB_OUTPUT="$dir/out" \
         bash --noprofile --norc -eo pipefail -c "$diff_script") || fail "diff $2: the step failed"
-    whole="$(sed -n 's/^whole=//p' "$dir/out")"
     sed -n 's/^diff=//p' "$dir/out"
 }
 
@@ -287,3 +296,12 @@ for agent in ("correctness-reviewer", "design-reviewer", "verifier"):
     assert agent in os.environ["PROMPT"], f"the prompt names no {agent}"
     assert isinstance(agents[agent]["tools"], list), f"--agents gives {agent} no tools"
 ' || fail "claude_args: --settings and --agents must split into JSON that gives each listed agent its tools"
+
+# Step 3's `Unread:` format is what the model writes and VERDICTS parses: a
+# change to either side without the other anchors nothing, and every
+# incomplete review would read the whole diff again.
+# shellcheck disable=SC2016 # the backticks are the prompt's own, not expansions
+[[ "$prompt" == *'an incomplete one ends with an `Unread:` line, then a `- <path>: <item>` line per item'* ]] ||
+    fail "prompt: step 3 no longer asks for the \`Unread:\` format VERDICTS parses"
+[[ "$verdicts_jq" == *'index("Unread:")'* && "$verdicts_jq" == *'test("^- [^ ]+: [^ ]")'* ]] ||
+    fail "VERDICTS: no longer parses the \`Unread:\` format step 3 asks for"
