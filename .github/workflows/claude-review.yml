@@ -128,9 +128,9 @@ jobs:
                 pair = top[len("diff --git "):].rstrip("\n")
                 return unquote(pair[len(pair) // 2 + 1:])
             # GitHub's PR diff is this three-dot diff (docs.github.com, "About
-            # comparing branches in pull requests"), here pinned to a commit and
-            # free of the API's size cap; it reads the base's .gitattributes, so
-            # a PR cannot mark its own hunks -diff.
+            # comparing branches in pull requests"), here pinned to a commit; it
+            # reads the base's .gitattributes, so a PR cannot mark its own hunks
+            # -diff.
             def units(rev):
                 diff = subprocess.run(["git", "-c", "core.quotePath=false", f"--attr-source=origin/{base}", "diff",
                                        "--no-color", f"origin/{base}...{rev}"], check=True, capture_output=True).stdout
