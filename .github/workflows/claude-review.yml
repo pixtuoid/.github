@@ -72,7 +72,6 @@ jobs:
           set -euo pipefail
           dir="$RUNNER_TEMP/review-context"
           mkdir -p "$dir"
-          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/commits?per_page=100" --jq '.[].sha' >"$dir/commits"
           gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews?per_page=100" --jq "$VERDICTS" >"$dir/verdicts.jsonl"
           reviewed="$(jq -r '"\(.commit_id) \(.submitted_at)"' "$dir/verdicts.jsonl")"
           # The concurrency group runs one review at a time, so the last one
@@ -109,7 +108,7 @@ jobs:
           # also the whole diff, so the ranges are the hunks the reviewers read.
           UNITS: |
             import codecs, collections, hashlib, json, re, subprocess, sys
-            base, head, verdicts, commits, whole = sys.argv[1:]
+            base, head, verdicts, whole = sys.argv[1:]
             META = ("old mode", "new mode", "new file mode", "deleted file mode", "similarity index",
                     "dissimilarity index", "rename from", "rename to", "copy from", "copy to")
             def unquote(p, strip=True):
@@ -160,7 +159,11 @@ jobs:
                         a, b, c, d = re.match(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", top).groups()
                         add(path, f"-{a},{b or 1}" if d == "0" else f"+{c},{d or 1}", (meta if i == 0 else "") + body)
                 return [(key if len(r) == 1 else f"{key}.{len(r)}", path, r) for (key, path), r in groups.items()]
-            in_pr, anchor, pending = set(open(commits).read().split()), None, set()
+            # The PR's commits from the checkout: the REST list stops at 250
+            # (github/rest-api-description, pulls/{pull_number}/commits).
+            in_pr = set(subprocess.run(["git", "rev-list", head, f"^origin/{base}"], check=True,
+                                       capture_output=True, text=True).stdout.split())
+            anchor, pending = None, set()
             for v in map(json.loads, open(verdicts)):
                 if v["commit_id"] not in in_pr:
                     continue
@@ -175,7 +178,7 @@ jobs:
           # UNITS writes the head's diff, which the reviewers read whole, as the
           # context every unit is judged against.
           whole="$DIR/whole.diff"
-          python3 -I -c "$UNITS" "$BASE_REF" "$HEAD" "$DIR/verdicts.jsonl" "$DIR/commits" "$whole" >"$DIR/units.md"
+          python3 -I -c "$UNITS" "$BASE_REF" "$HEAD" "$DIR/verdicts.jsonl" "$whole" >"$DIR/units.md"
           { echo "units=$DIR/units.md"; echo "whole=$whole"; } >>"$GITHUB_OUTPUT"
       - uses: anthropics/claude-code-action@d535f5172dec02b204866b393d6b20b9b2aaf98d # v1.0.266
         env:

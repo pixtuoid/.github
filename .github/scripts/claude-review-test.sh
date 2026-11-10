@@ -35,7 +35,6 @@ gh() {
         shift
     done
     case "$path" in
-    "repos/$GITHUB_REPOSITORY/pulls/$PR/commits?per_page=100") kind=commits ;;
     "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews?per_page=100") kind=reviews ;;
     "repos/$GITHUB_REPOSITORY/pulls/$PR/comments?per_page=100") kind=comments ;;
     *) echo "gh stub: unexpected path $path" >&2; return 1 ;;
@@ -52,7 +51,6 @@ export -f gh
 # A commit by number, or a real one as it is.
 sha() { if [[ "$1" =~ ^[0-9a-f]{40}$ ]]; then echo "$1"; else printf '%040d' "$1"; fi; }
 at() { printf '2026-01-01T00:%02d:00Z' "$1"; }
-commit() { jq -nc --arg sha "$(sha "$1")" '{sha: $sha}'; }
 # review <author> <commit> <body> [minute submitted, default the commit's number]
 review() {
     jq -nc --arg by "$1" --arg sha "$(sha "$2")" --arg body "$3" --arg at "$(at "${4:-$2}")" \
@@ -93,7 +91,7 @@ assert_recheck() {
 new_case() {
     PAGES="$work/$1"
     mkdir -p "$PAGES"
-    for kind in commits reviews comments; do printf '' | page "$kind" 1; done
+    for kind in reviews comments; do printf '' | page "$kind" 1; done
 }
 
 # The verdicts VERDICTS kept, oldest first, as `<commit>/<C or I>/<ids>`: the
@@ -108,13 +106,10 @@ assert_verdicts() {
 bot='github-actions[bot]'
 
 new_case first
-{ commit 1; commit 2; } | page commits 1
 assert_verdicts first ""
 
 # The MCP tool's one page was what hid pixtuoid#1648's newest reviews.
 new_case newest-on-page-2
-commit 1 | page commits 1
-{ commit 2; commit 3; } | page commits 2
 review "$bot" 1 'Blocking: 0' | page reviews 1
 review "$bot" 2 $'Blocking: 1\n\n**Verdict:** one blocking finding' | page reviews 2
 assert_verdicts newest-on-page-2 "1/C/ 2/C/"
@@ -122,7 +117,6 @@ assert_verdicts newest-on-page-2 "1/C/ 2/C/"
 # Only the bot's reviews whose first line is a verdict count; a list-less
 # incomplete one is kept, since it can only keep units in scope.
 new_case no-verdict
-{ commit 1; commit 2; commit 3; commit 4; commit 5; } | page commits 1
 {
     review "$bot" 1 'Blocking: 0'
     review "$bot" 2 ''
@@ -136,7 +130,6 @@ assert_verdicts no-verdict "1/C/ 4/I/"
 # group's included, past blank lines; a sub-bullet, prose or an item line
 # is no id, so the unit it stands for stays in scope.
 new_case incomplete-listed
-{ commit 1; commit 2; } | page commits 1
 {
     review "$bot" 1 'Blocking: 0'
     review "$bot" 2 $'Blocking: incomplete\n\nRead:\n- 0123456789ab src/x.rs:+40,3\n \t\n- 0123456789ac.2 b.rs:+1,1,+9,1\n  - 0123456789ad a.rs:+12,1\n- a.rs: fn foo\nthen prose\n'
@@ -164,7 +157,6 @@ assert_recheck recheck-first '[[2,[3]]]'
 # the comments after it: a reply at 25, while the last review ran, is still
 # unchecked, and one at 15 was checked.
 new_case recheck-window
-{ commit 1; commit 2; commit 3; } | page commits 1
 { review "$bot" 1 'Blocking: 1' 10; review "$bot" 2 'Blocking: 0' 20; review "$bot" 3 'Blocking: 0' 30; } | page reviews 1
 {
     comment 1 'a'
@@ -214,11 +206,10 @@ run_diff() {
     local dir="$work/diff-$1"
     mkdir -p "$dir"
     cat >"$dir/verdicts.jsonl"
-    g rev-list "origin/main..$2" >"$dir/commits"
     run_diff_in "$1" "$2" "$dir"
 }
-# The same over directory $3, whose verdicts.jsonl and commits it reads:
-# run_diff's own, or the scope step's.
+# The same over directory $3, whose verdicts.jsonl it reads: run_diff's own,
+# or the scope step's.
 run_diff_in() {
     : >"$work/diff-$1.out"
     (cd "$repo" && BASE_REF=main HEAD="$2" DIR="$3" UNITS="$units_py" GITHUB_OUTPUT="$work/diff-$1.out" \
@@ -264,7 +255,6 @@ a_id="$(ids_of whole a)" p2_id="$(ids_of whole p2)"
 
 # The format step 3 asks for, a line the step wrote, parses back to its id.
 new_case read-back
-commit 1 | page commits 1
 review "$bot" 1 "$(printf 'Blocking: incomplete\n\nRead:\n%s' "$(grep ' p1:' "$(units_of whole)")")" | page reviews 1
 assert_verdicts read-back "1/I/$p1_id"
 
@@ -272,13 +262,11 @@ assert_verdicts read-back "1/I/$p1_id"
 # review of p1 that judged p1's unit takes it out, and one that listed
 # nothing keeps it.
 new_case handoff
-for c in $(g rev-list --reverse "origin/main..$merge"); do commit "$c"; done | page commits 1
 review "$bot" "$p1" "$(printf 'Blocking: incomplete\n\nRead:\n%s' "$(grep ' p1:' "$(units_of whole)")")" 1 | page reviews 1
 run_step handoff
 run_diff_in handoff "$merge" "$dir"
 [[ "$(paths handoff)" == ".gitattributes a p2 " ]] || fail "diff handoff: want p1 judged through the scope step's files, got: $(paths handoff)"
 new_case handoff-incomplete
-for c in $(g rev-list --reverse "origin/main..$merge"); do commit "$c"; done | page commits 1
 review "$bot" "$p1" 'Blocking: incomplete' 1 | page reviews 1
 run_step handoff-incomplete
 [[ "$(jq -r '"\(.commit_id) \(.incomplete)"' "$verdicts")" == "$p1 true" ]] ||
