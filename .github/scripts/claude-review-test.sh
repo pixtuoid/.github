@@ -64,7 +64,7 @@ comment() {
 }
 page() { jq -sc . >"$PAGES/$1.$2.json"; }
 
-# Runs the step over the pages a case wrote and sets $since, $comments,
+# Runs the step over the pages a case wrote and sets $dir, $comments,
 # $recheck and $verdicts.
 run_step() {
     local out="$work/$1.out"
@@ -72,10 +72,10 @@ run_step() {
     PAGES="$PAGES" GITHUB_REPOSITORY=org/repo PR=7 RUNNER_TEMP="$work/$1.tmp" GITHUB_OUTPUT="$out" \
         VERDICTS="$verdicts_jq" COMMENT="$comment_jq" RECHECK="$recheck_jq" \
         bash --noprofile --norc -eo pipefail -c "$script" || fail "$1: the step failed"
-    since="$(sed -n 's/^since=//p' "$out")"
+    dir="$(sed -n 's/^dir=//p' "$out")"
     comments="$(sed -n 's/^comments=//p' "$out")"
     recheck="$(sed -n 's/^recheck=//p' "$out")"
-    verdicts="$(sed -n 's/^dir=//p' "$out")/verdicts.jsonl"
+    verdicts="$dir/verdicts.jsonl"
     [[ -f "$comments" ]] || fail "$1: no comments file at '$comments'"
     [[ -f "$recheck" ]] || fail "$1: no recheck file at '$recheck'"
     [[ -f "$verdicts" ]] || fail "$1: no verdicts file at '$verdicts'"
@@ -95,20 +95,20 @@ new_case() {
     for kind in commits reviews comments; do printf '' | page "$kind" 1; done
 }
 
-# The anchor, and the unit ids the newest verdict lists as judged.
-assert_since() {
-    local name="$1" want="$2" want_read="${3:-}" got
+# The verdicts VERDICTS kept, oldest first, as `<commit>/<C or I>/<ids>`: the
+# commit's number, complete or incomplete, and the ids listed as judged.
+assert_verdicts() {
+    local name="$1" want="$2" got
     run_step "$name"
-    [[ "$since" == "$want" ]] || fail "$name: since '$since', want '$want'"
-    got="$(jq -r -s 'last // {read: []} | .read | join(" ")' "$verdicts")"
-    [[ "$got" == "$want_read" ]] || fail "$name: read '$got', want '$want_read'"
+    got="$(jq -r -s 'map("\(.commit_id | tonumber)/\(if .incomplete then "I" else "C" end)/\(.read | join(","))") | join(" ")' "$verdicts")"
+    [[ "$got" == "$want" ]] || fail "$name: verdicts '$got', want '$want'"
 }
 
 bot='github-actions[bot]'
 
 new_case first
 { commit 1; commit 2; } | page commits 1
-assert_since first ""
+assert_verdicts first ""
 
 # The MCP tool's one page was what hid pixtuoid#1648's newest reviews.
 new_case newest-on-page-2
@@ -116,27 +116,20 @@ commit 1 | page commits 1
 { commit 2; commit 3; } | page commits 2
 review "$bot" 1 'Blocking: 0' | page reviews 1
 review "$bot" 2 $'Blocking: 1\n\n**Verdict:** one blocking finding' | page reviews 2
-assert_since newest-on-page-2 "$(sha 2)"
+assert_verdicts newest-on-page-2 "1/C/ 2/C/"
 
-new_case force-pushed
-{ commit 1; commit 3; } | page commits 1
-{ review "$bot" 1 'Blocking: 0'; review "$bot" 2 'Blocking: 0'; } | page reviews 1
-assert_since force-pushed "$(sha 1)"
-
-new_case rebased
-{ commit 3; commit 4; } | page commits 1
-{ review "$bot" 1 'Blocking: 0'; review "$bot" 2 'Blocking: 0'; } | page reviews 1
-assert_since rebased ""
-
+# Only the bot's reviews whose first line is a verdict count; a list-less
+# incomplete one is kept, since it can only keep units in scope.
 new_case no-verdict
-{ commit 1; commit 2; commit 3; commit 4; } | page commits 1
+{ commit 1; commit 2; commit 3; commit 4; commit 5; } | page commits 1
 {
     review "$bot" 1 'Blocking: 0'
     review "$bot" 2 ''
     review "$bot" 3 $'**Verdict:** fine\nBlocking: 0'
     review "$bot" 4 $'Blocking: incomplete\n\n**Verdict:** read nothing'
+    review someone 5 'Blocking: 0'
 } | page reviews 1
-assert_since no-verdict "$(sha 4)"
+assert_verdicts no-verdict "1/C/ 4/I/"
 
 # Step 3's `Read:` list, as VERDICTS parses it: each unit line's id, a twin
 # group's included, past blank lines; a sub-bullet, prose or an item line
@@ -147,22 +140,7 @@ new_case incomplete-listed
     review "$bot" 1 'Blocking: 0'
     review "$bot" 2 $'Blocking: incomplete\n\nRead:\n- 0123456789ab src/x.rs:+40,3\n \t\n- 0123456789ac.2 b.rs:+1,1,+9,1\n  - 0123456789ad a.rs:+12,1\n- a.rs: fn foo\nthen prose\n'
 } | page reviews 1
-assert_since incomplete-listed "$(sha 2)" '0123456789ab 0123456789ac.2'
-
-# A force-push leaves the anchor at the newest verdict still in the PR; the
-# replay below skips the dropped one's list too.
-new_case incomplete-force-pushed
-{ commit 1; commit 3; } | page commits 1
-{
-    review "$bot" 1 $'Blocking: incomplete\n\nRead:\n- 0000000000a1 a.rs:+1,1'
-    review "$bot" 2 $'Blocking: incomplete\n\nRead:\n- 0000000000b2 b.rs:+1,1'
-} | page reviews 1
-assert_since incomplete-force-pushed "$(sha 1)" '0000000000b2'
-
-new_case human
-{ commit 1; commit 2; } | page commits 1
-{ review "$bot" 1 'Blocking: 0'; review someone 2 'Blocking: 0'; } | page reviews 1
-assert_since human "$(sha 1)"
+assert_verdicts incomplete-listed "1/C/ 2/I/0123456789ab,0123456789ac.2"
 
 # The MCP tool stops at 100 comments, the oldest, so the newest round's
 # findings were the ones a re-review could not see.
@@ -234,14 +212,18 @@ verdict() {
 run_diff() {
     local dir="$work/diff-$1"
     mkdir -p "$dir"
-    : >"$dir/out"
     cat >"$dir/verdicts.jsonl"
     g rev-list "origin/main..$2" >"$dir/commits"
-    (cd "$repo" && BASE_REF=main HEAD="$2" DIR="$dir" UNITS="$units_py" GITHUB_OUTPUT="$dir/out" \
+    run_diff_in "$1" "$2" "$dir"
+}
+# The same over the scope step's own directory $3, whose files it reads.
+run_diff_in() {
+    : >"$work/diff-$1.out"
+    (cd "$repo" && BASE_REF=main HEAD="$2" DIR="$3" UNITS="$units_py" GITHUB_OUTPUT="$work/diff-$1.out" \
         bash --noprofile --norc -eo pipefail -c "$diff_script") || fail "diff $1: the step failed"
 }
-units_of() { sed -n 's/^units=//p' "$work/diff-$1/out"; }
-whole_of() { sed -n 's/^whole=//p' "$work/diff-$1/out"; }
+units_of() { sed -n 's/^units=//p' "$work/diff-$1.out"; }
+whole_of() { sed -n 's/^whole=//p' "$work/diff-$1.out"; }
 # The paths the scope of run $1 names, sorted.
 paths() { sed -E 's/^- [^ ]+ (.*):[^:]*$/\1/' "$(units_of "$1")" | sort | tr '\n' ' '; }
 # The ids of the units in file $2 in the scope of run $1, one per line.
@@ -282,7 +264,26 @@ a_id="$(ids_of whole a)" p2_id="$(ids_of whole p2)"
 new_case read-back
 commit 1 | page commits 1
 review "$bot" 1 "$(printf 'Blocking: incomplete\n\nRead:\n%s' "$(grep ' p1:' "$(units_of whole)")")" | page reviews 1
-assert_since read-back "$(sha 1)" "$p1_id"
+assert_verdicts read-back "1/I/$p1_id"
+
+# The scope step's files, read by the diff step as they are: an incomplete
+# review of p1 that judged p1's unit takes it out, and one that listed
+# nothing keeps it.
+new_case handoff
+for c in $(g rev-list --reverse "origin/main..$merge"); do jq -nc --arg sha "$c" '{sha: $sha}'; done | page commits 1
+{
+    jq -nc --arg by "$bot" --arg sha "$p1" --arg body "$(printf 'Blocking: incomplete\n\nRead:\n%s' "$(grep ' p1:' "$(units_of whole)")")" \
+        '{user: {login: $by}, commit_id: $sha, body: $body, submitted_at: "2026-01-01T00:01:00Z"}'
+} | page reviews 1
+run_step handoff
+run_diff_in handoff "$merge" "$dir"
+[[ "$(paths handoff)" == ".gitattributes a p2 " ]] || fail "diff handoff: want p1 judged through the scope step's files, got: $(paths handoff)"
+new_case handoff-incomplete
+for c in $(g rev-list --reverse "origin/main..$merge"); do jq -nc --arg sha "$c" '{sha: $sha}'; done | page commits 1
+jq -nc --arg by "$bot" --arg sha "$p1" '{user: {login: $by}, commit_id: $sha, body: "Blocking: incomplete", submitted_at: "2026-01-01T00:01:00Z"}' | page reviews 1
+run_step handoff-incomplete
+run_diff_in handoff-incomplete "$merge" "$dir"
+[[ "$(paths handoff-incomplete)" == ".gitattributes a p1 p2 " ]] || fail "diff handoff-incomplete: an incomplete review that listed nothing took p1 out"
 
 # A push that shifts a hunk's lines keeps its id when its context holds, and an
 # edit next to a hunk changes it; twins are one unit whose id counts them, so
