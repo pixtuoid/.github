@@ -49,7 +49,8 @@ gh() {
 }
 export -f gh
 
-sha() { printf '%040d' "$1"; }
+# A commit by number, or a real one as it is.
+sha() { if [[ "$1" =~ ^[0-9a-f]{40}$ ]]; then echo "$1"; else printf '%040d' "$1"; fi; }
 at() { printf '2026-01-01T00:%02d:00Z' "$1"; }
 commit() { jq -nc --arg sha "$(sha "$1")" '{sha: $sha}'; }
 # review <author> <commit> <body> [minute submitted, default the commit's number]
@@ -216,7 +217,8 @@ run_diff() {
     g rev-list "origin/main..$2" >"$dir/commits"
     run_diff_in "$1" "$2" "$dir"
 }
-# The same over the scope step's own directory $3, whose files it reads.
+# The same over directory $3, whose verdicts.jsonl and commits it reads:
+# run_diff's own, or the scope step's.
 run_diff_in() {
     : >"$work/diff-$1.out"
     (cd "$repo" && BASE_REF=main HEAD="$2" DIR="$3" UNITS="$units_py" GITHUB_OUTPUT="$work/diff-$1.out" \
@@ -270,18 +272,17 @@ assert_verdicts read-back "1/I/$p1_id"
 # review of p1 that judged p1's unit takes it out, and one that listed
 # nothing keeps it.
 new_case handoff
-for c in $(g rev-list --reverse "origin/main..$merge"); do jq -nc --arg sha "$c" '{sha: $sha}'; done | page commits 1
-{
-    jq -nc --arg by "$bot" --arg sha "$p1" --arg body "$(printf 'Blocking: incomplete\n\nRead:\n%s' "$(grep ' p1:' "$(units_of whole)")")" \
-        '{user: {login: $by}, commit_id: $sha, body: $body, submitted_at: "2026-01-01T00:01:00Z"}'
-} | page reviews 1
+for c in $(g rev-list --reverse "origin/main..$merge"); do commit "$c"; done | page commits 1
+review "$bot" "$p1" "$(printf 'Blocking: incomplete\n\nRead:\n%s' "$(grep ' p1:' "$(units_of whole)")")" 1 | page reviews 1
 run_step handoff
 run_diff_in handoff "$merge" "$dir"
 [[ "$(paths handoff)" == ".gitattributes a p2 " ]] || fail "diff handoff: want p1 judged through the scope step's files, got: $(paths handoff)"
 new_case handoff-incomplete
-for c in $(g rev-list --reverse "origin/main..$merge"); do jq -nc --arg sha "$c" '{sha: $sha}'; done | page commits 1
-jq -nc --arg by "$bot" --arg sha "$p1" '{user: {login: $by}, commit_id: $sha, body: "Blocking: incomplete", submitted_at: "2026-01-01T00:01:00Z"}' | page reviews 1
+for c in $(g rev-list --reverse "origin/main..$merge"); do commit "$c"; done | page commits 1
+review "$bot" "$p1" 'Blocking: incomplete' 1 | page reviews 1
 run_step handoff-incomplete
+[[ "$(jq -r '"\(.commit_id) \(.incomplete)"' "$verdicts")" == "$p1 true" ]] ||
+    fail "handoff-incomplete: want the list-less incomplete verdict kept, got: $(cat "$verdicts")"
 run_diff_in handoff-incomplete "$merge" "$dir"
 [[ "$(paths handoff-incomplete)" == ".gitattributes a p1 p2 " ]] || fail "diff handoff-incomplete: an incomplete review that listed nothing took p1 out"
 
