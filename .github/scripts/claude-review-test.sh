@@ -64,8 +64,8 @@ comment() {
 }
 page() { jq -sc . >"$PAGES/$1.$2.json"; }
 
-# Runs the step over the pages a case wrote and sets $since, $comments and
-# $recheck.
+# Runs the step over the pages a case wrote and sets $since, $comments,
+# $recheck and $unread.
 run_step() {
     local out="$work/$1.out"
     : >"$out"
@@ -75,8 +75,10 @@ run_step() {
     since="$(sed -n 's/^since=//p' "$out")"
     comments="$(sed -n 's/^comments=//p' "$out")"
     recheck="$(sed -n 's/^recheck=//p' "$out")"
+    unread="$(sed -n 's/^unread=//p' "$out")"
     [[ -f "$comments" ]] || fail "$1: no comments file at '$comments'"
     [[ -f "$recheck" ]] || fail "$1: no recheck file at '$recheck'"
+    [[ -f "$unread" ]] || fail "$1: no unread file at '$unread'"
 }
 
 # The finding ids of the recheck file, each with its replies' ids.
@@ -93,10 +95,12 @@ new_case() {
     for kind in commits reviews comments; do printf '' | page "$kind" 1; done
 }
 
+# The anchor, and the anchoring review's unread items as the next scope reads them.
 assert_since() {
-    local name="$1" want="$2"
+    local name="$1" want="$2" want_unread="${3:-}"
     run_step "$name"
     [[ "$since" == "$want" ]] || fail "$name: since '$since', want '$want'"
+    [[ "$(cat "$unread")" == "$want_unread" ]] || fail "$name: unread '$(cat "$unread")', want '$want_unread'"
 }
 
 bot='github-actions[bot]'
@@ -132,6 +136,56 @@ new_case no-verdict
     review "$bot" 4 'Blocking: incomplete'
 } | page reviews 1
 assert_since no-verdict "$(sha 1)"
+
+# The parse that anchors on step 3's format: a `path:line` item is well
+# formed, and a blank or whitespace-only line between items drops neither.
+new_case incomplete-listed
+{ commit 1; commit 2; } | page commits 1
+{
+    review "$bot" 1 'Blocking: 0'
+    review "$bot" 2 $'Blocking: incomplete\n\nUnread:\n- src/x.rs:40: fn row_for\n \t\n- b.rs: impl Bar\n'
+} | page reviews 1
+assert_since incomplete-listed "$(sha 2)" $'- src/x.rs:40: fn row_for\n- b.rs: impl Bar'
+
+# Any other line after the header, a sub-bullet, a continuation or prose,
+# anchors nothing, so no item past it is skipped.
+new_case incomplete-interrupted
+{ commit 1; commit 2; } | page commits 1
+{
+    review "$bot" 1 'Blocking: 0'
+    review "$bot" 2 $'Blocking: incomplete\n\nUnread:\n- a.rs: fn a\n  - a.rs:12: detail\n- b.rs: fn b'
+    review "$bot" 2 $'Blocking: incomplete\n\nUnread:\n- a.rs: fn a\n  (read only around its hunk)\n- b.rs: fn b' 3
+    review "$bot" 2 $'Blocking: incomplete\n\nUnread:\n- a.rs: fn a\n\nthen prose' 4
+} | page reviews 1
+assert_since incomplete-interrupted "$(sha 1)"
+
+# One malformed item and the list anchors nothing, so nothing in it is skipped.
+new_case incomplete-malformed
+{ commit 1; commit 2; } | page commits 1
+{
+    review "$bot" 1 'Blocking: 0'
+    review "$bot" 2 $'Blocking: incomplete\n\nUnread:\n- a.rs: fn foo\n- files still to read'
+    review "$bot" 2 $'Blocking: incomplete\n\nUnread:\n' 3
+} | page reviews 1
+assert_since incomplete-malformed "$(sha 1)"
+
+# The backlog is the anchoring review's: a force-push that drops the newest
+# verdict's commit falls back to an older one, and to its list.
+new_case incomplete-force-pushed
+{ commit 1; commit 3; } | page commits 1
+{
+    review "$bot" 1 $'Blocking: incomplete\n\nUnread:\n- a.rs: fn one'
+    review "$bot" 2 $'Blocking: incomplete\n\nUnread:\n- b.rs: fn two'
+} | page reviews 1
+assert_since incomplete-force-pushed "$(sha 1)" '- a.rs: fn one'
+
+new_case complete-after-incomplete
+{ commit 1; commit 2; } | page commits 1
+{
+    review "$bot" 2 $'Blocking: incomplete\n\nUnread:\n- a.rs: fn foo'
+    review "$bot" 2 'Blocking: 0' 3
+} | page reviews 1
+assert_since complete-after-incomplete "$(sha 2)"
 
 new_case human
 { commit 1; commit 2; } | page commits 1
@@ -210,15 +264,21 @@ run_diff() {
 # Each file a diff names, by its head-side path.
 files() { sed -n 's|^diff --git a/.* b/||p; s|^diff --cc ||p' "$1" | sort | tr '\n' ' '; }
 
-got="$(files "$(run_diff "" whole)")"
+scope="$(run_diff "" whole)"
+whole="$(sed -n 's/^whole=//p' "$work/diff-whole/out")"
+[[ "$scope" == "$whole" ]] || fail "diff whole: with no anchor the scope is the whole diff, got $scope and $whole"
+got="$(files "$scope")"
 [[ "$got" == ".gitattributes a p1 p2 " ]] || fail "diff whole: want the PR's .gitattributes, a, p1 and p2, got: $got"
-grep -qx '+one' "$work/diff-whole/scope.diff" || fail "diff whole: the PR's own .gitattributes hid p1's hunk"
+grep -qx '+one' "$scope" || fail "diff whole: the PR's own .gitattributes hid p1's hunk"
 
 since="$(run_diff "$p1" since)"
 got="$(files "$since")"
 [[ "$got" == ".gitattributes a a p2 " ]] || fail "diff since: want p2's .gitattributes, a and p2 and the merge's resolution of a, got: $got"
 grep -qx '+two' "$since" || fail "diff since: the PR's own .gitattributes hid p2's hunk"
 grep -q "^commit $merge" "$since" || fail "diff since: the merge commit is not listed"
+whole="$(sed -n 's/^whole=//p' "$work/diff-since/out")"
+# An anchored run still judges its items against everything the PR changed.
+grep -qx '+one' "$whole" || fail "diff since: the whole diff lacks p1's hunk"
 
 # claude-code-action splits claude_args like a shell before the CLI reads
 # --settings and --agents as JSON, and review.yml runs this workflow from main,
@@ -237,3 +297,10 @@ for agent in ("correctness-reviewer", "design-reviewer", "verifier"):
     assert agent in os.environ["PROMPT"], f"the prompt names no {agent}"
     assert isinstance(agents[agent]["tools"], list), f"--agents gives {agent} no tools"
 ' || fail "claude_args: --settings and --agents must split into JSON that gives each listed agent its tools"
+
+# Step 3's `Unread:` format is what the model writes; the incomplete-* cases
+# hold VERDICTS to it, and this holds the prompt to the same format, so a
+# reworded prompt can't leave every incomplete review anchoring nothing.
+# shellcheck disable=SC2016 # the backticks are the prompt's own, not expansions
+[[ "$prompt" == *'an incomplete one ends with an `Unread:` line, then a `- <path>: <item>` line per item'* ]] ||
+    fail "prompt: step 3 no longer asks for the \`Unread:\` format the incomplete-* cases parse"
