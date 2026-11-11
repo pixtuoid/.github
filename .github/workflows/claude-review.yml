@@ -254,7 +254,7 @@ jobs:
             | .body | split("\n")[0]
         run: |
           set -euo pipefail
-          verdict="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews" --jq "$VERDICT" | tail -n 1)"
+          verdict="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews?per_page=100" --jq "$VERDICT" | tail -n 1)"
           if [[ "$verdict" != "Blocking: 0" ]]; then
             echo "::error::the review at ${HEAD_SHA::7} reports a blocking finding or no verdict: fix it, or disposition and resolve its thread, then re-run"
             exit 1

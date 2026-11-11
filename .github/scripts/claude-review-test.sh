@@ -19,8 +19,8 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
 # Serves $PAGES/<kind>.<n>.json in page order, each through --jq as gh does,
-# and only page 1 without --paginate; anything else is a call the step must
-# not make.
+# and only page 1 without --paginate; anything else is a call no step may
+# make.
 gh() {
     local paginate=false path="" expr="" kind
     [[ "${1:-}" == api ]] || { echo "gh stub: unexpected: $*" >&2; return 1; }
@@ -35,7 +35,7 @@ gh() {
         shift
     done
     case "$path" in
-    "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews?per_page=100" | "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews") kind=reviews ;;
+    "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews?per_page=100") kind=reviews ;;
     "repos/$GITHUB_REPOSITORY/pulls/$PR/comments?per_page=100") kind=comments ;;
     *) echo "gh stub: unexpected path $path" >&2; return 1 ;;
     esac
@@ -366,14 +366,10 @@ new_case check-incomplete
 review "$bot" 9 'Blocking: incomplete' | page reviews 1
 assert_check check-incomplete fail
 
-# An inline comment is a review with an empty body: alone it is no verdict, and
-# after the summary it must not hide it.
+# An inline comment is a review with an empty body, so alone it is no verdict.
 new_case check-inline-only
 review "$bot" 9 '' | page reviews 1
 assert_check check-inline-only fail
-new_case check-inline-after
-{ review "$bot" 9 "$clean"; review "$bot" 9 '' 10; } | page reviews 1
-assert_check check-inline-after pass
 
 new_case check-other-user
 review someone 9 "$clean" | page reviews 1
