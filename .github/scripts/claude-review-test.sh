@@ -336,6 +336,8 @@ for agent in ("correctness-reviewer", "design-reviewer", "verifier"):
 # shellcheck disable=SC2016 # the backticks are the prompt's own, not expansions
 [[ "$prompt" == *'an incomplete one ends with a `Read:` line, then the `- <id> <path>:<range>` line of each scope unit'* ]] ||
     fail "prompt: step 3 no longer asks for the \`Read:\` format VERDICTS parses"
+[[ "$(yq -r "$action | .with.classify_inline_comments" "$WORKFLOW_FILE")" == false ]] ||
+    fail "classify_inline_comments: buffering would post inline reviews after the summary VERDICT needs as the newest"
 
 # The step that sets the required check, run over a case's reviews at head 9.
 # A crash fails the check too, so a fail counts only with the step's ::error::.
