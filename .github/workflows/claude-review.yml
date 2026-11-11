@@ -194,6 +194,9 @@ jobs:
           # The job's token, so neither the Claude GitHub App nor id-token.
           github_token: ${{ github.token }}
           # Buffering screens out probe comments, and only this prompt posts.
+          # It also holds each inline comment not sent with confirmed=true until
+          # the session ends (the action's action.yml), past the summary the
+          # verdict step needs as the newest review.
           classify_inline_comments: false
           prompt: |
             Review pull request #${{ github.event.pull_request.number }} of ${{ github.repository }}: base ${{ github.event.pull_request.base.sha }}, head ${{ github.event.pull_request.head.sha }}, checked out here.
@@ -250,11 +253,11 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR: ${{ github.event.pull_request.number }}
           VERDICT: >-
-            .[] | select(.user.login == "github-actions[bot]" and .commit_id == env.HEAD_SHA and .body != "")
+            .[] | select(.user.login == "github-actions[bot]" and .commit_id == env.HEAD_SHA)
             | .body | split("\n")[0]
         run: |
           set -euo pipefail
-          verdict="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews" --jq "$VERDICT" | tail -n 1)"
+          verdict="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews?per_page=100" --jq "$VERDICT" | tail -n 1)"
           if [[ "$verdict" != "Blocking: 0" ]]; then
             echo "::error::the review at ${HEAD_SHA::7} reports a blocking finding or no verdict: fix it, or disposition and resolve its thread, then re-run"
             exit 1

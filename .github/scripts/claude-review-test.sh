@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# claude-review.yml's scope and diff steps against fixtures, and the JSON its
-# claude_args carries; run from the repo root.
+# claude-review.yml's scope, diff and verdict steps against fixtures, and the
+# JSON its claude_args carries; run from the repo root.
 set -euo pipefail
 
 fail() {
@@ -19,8 +19,8 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
 # Serves $PAGES/<kind>.<n>.json in page order, each through --jq as gh does,
-# and only page 1 without --paginate; anything else is a call the step must
-# not make.
+# and only page 1 without --paginate; anything else is a call no step may
+# make.
 gh() {
     local paginate=false path="" expr="" kind
     [[ "${1:-}" == api ]] || { echo "gh stub: unexpected: $*" >&2; return 1; }
@@ -336,3 +336,62 @@ for agent in ("correctness-reviewer", "design-reviewer", "verifier"):
 # shellcheck disable=SC2016 # the backticks are the prompt's own, not expansions
 [[ "$prompt" == *'an incomplete one ends with a `Read:` line, then the `- <id> <path>:<range>` line of each scope unit'* ]] ||
     fail "prompt: step 3 no longer asks for the \`Read:\` format VERDICTS parses"
+[[ "$(yq -r "$action | .with.classify_inline_comments" "$WORKFLOW_FILE")" == false ]] ||
+    fail "classify_inline_comments: buffering would post inline reviews after the summary VERDICT needs as the newest"
+
+# The step that sets the required check, run over a case's reviews at head 9.
+# A crash fails the check too, so a fail counts only with the step's ::error::.
+check_step='.jobs.claude-review.steps[] | select(.env.VERDICT != null)'
+check_script="$(yq -e -r "$check_step | .run" "$WORKFLOW_FILE")"
+check_jq="$(yq -e -r "$check_step | .env.VERDICT" "$WORKFLOW_FILE")"
+assert_check() {
+    local name="$1" want="$2" got=pass
+    PAGES="$PAGES" GITHUB_REPOSITORY=org/repo PR=7 HEAD_SHA="$(sha 9)" VERDICT="$check_jq" \
+        bash --noprofile --norc -eo pipefail -c "$check_script" >"$work/$name.out" 2>"$work/$name.err" || got=fail
+    [[ "$got" == pass ]] || grep -q '^::error::' "$work/$name.out" || fail "check $name: the step crashed: $(cat "$work/$name.err")"
+    [[ "$got" == "$want" ]] || fail "check $name: the check would $got, want $want"
+}
+clean=$'Blocking: 0\n\n**Verdict:** no findings'
+
+new_case check-clean
+review "$bot" 9 "$clean" | page reviews 1
+assert_check check-clean pass
+
+new_case check-none
+assert_check check-none fail
+
+new_case check-blocking
+review "$bot" 9 'Blocking: 1' | page reviews 1
+assert_check check-blocking fail
+
+new_case check-incomplete
+review "$bot" 9 'Blocking: incomplete' | page reviews 1
+assert_check check-incomplete fail
+
+# An inline comment is a review with an empty body, so alone it is no verdict,
+# and after a summary it is a finding of a run that stopped before its own.
+new_case check-inline-only
+review "$bot" 9 '' | page reviews 1
+assert_check check-inline-only fail
+new_case check-inline-after
+{ review "$bot" 9 "$clean"; review "$bot" 9 '' 10; } | page reviews 1
+assert_check check-inline-after fail
+
+new_case check-other-user
+review someone 9 "$clean" | page reviews 1
+assert_check check-other-user fail
+
+# A head whose own review ended without its summary must not pass on the
+# previous head's.
+new_case check-older-head
+review "$bot" 8 "$clean" | page reviews 1
+assert_check check-older-head fail
+
+# A re-review at the head decides, its page past the first included.
+new_case check-rereview-clean
+review "$bot" 9 'Blocking: 1' | page reviews 1
+review "$bot" 9 "$clean" 10 | page reviews 2
+assert_check check-rereview-clean pass
+new_case check-rereview-blocks
+{ review "$bot" 9 "$clean"; review "$bot" 9 'Blocking: 1' 10; } | page reviews 1
+assert_check check-rereview-blocks fail
