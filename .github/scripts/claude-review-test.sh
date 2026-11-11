@@ -366,10 +366,14 @@ new_case check-incomplete
 review "$bot" 9 'Blocking: incomplete' | page reviews 1
 assert_check check-incomplete fail
 
-# An inline comment is a review with an empty body, so alone it is no verdict.
+# An inline comment is a review with an empty body, so alone it is no verdict,
+# and after a summary it is a finding of a run that stopped before its own.
 new_case check-inline-only
 review "$bot" 9 '' | page reviews 1
 assert_check check-inline-only fail
+new_case check-inline-after
+{ review "$bot" 9 "$clean"; review "$bot" 9 '' 10; } | page reviews 1
+assert_check check-inline-after fail
 
 new_case check-other-user
 review someone 9 "$clean" | page reviews 1
