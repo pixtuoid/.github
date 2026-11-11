@@ -194,9 +194,9 @@ jobs:
           # The job's token, so neither the Claude GitHub App nor id-token.
           github_token: ${{ github.token }}
           # Buffering screens out probe comments, and only this prompt posts.
-          # It also posts every inline comment after the session ends (the
-          # action's action.yml), past the summary the verdict step needs as
-          # the newest review.
+          # It also holds each inline comment not sent with confirmed=true until
+          # the session ends (the action's action.yml), past the summary the
+          # verdict step needs as the newest review.
           classify_inline_comments: false
           prompt: |
             Review pull request #${{ github.event.pull_request.number }} of ${{ github.repository }}: base ${{ github.event.pull_request.base.sha }}, head ${{ github.event.pull_request.head.sha }}, checked out here.
