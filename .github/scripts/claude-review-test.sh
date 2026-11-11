@@ -379,8 +379,8 @@ new_case check-other-user
 review someone 9 "$clean" | page reviews 1
 assert_check check-other-user fail
 
-# A head whose own review crashed before its summary must not pass on the last
-# head's.
+# A head whose own review ended without its summary must not pass on the
+# previous head's.
 new_case check-older-head
 review "$bot" 8 "$clean" | page reviews 1
 assert_check check-older-head fail
