@@ -253,6 +253,11 @@ a_id="$(ids_of whole a)" p2_id="$(ids_of whole p2)"
 } | run_diff reruns "$merge"
 [[ "$(paths reruns)" == ".gitattributes " ]] || fail "diff reruns: want only .gitattributes left, got: $(paths reruns)"
 
+# An edit of the title, body or base re-runs the review at the same head, and
+# after a complete review there no unit is left, so it reads the title and body.
+verdict "$merge" false | run_diff edited "$merge"
+[[ -z "$(paths edited)" ]] || fail "diff edited: a complete review at the head left units in scope: $(paths edited)"
+
 # The format step 3 asks for, a line the step wrote, parses back to its id.
 new_case read-back
 review "$bot" 1 "$(printf 'Blocking: incomplete\n\nRead:\n%s' "$(grep ' p1:' "$(units_of whole)")")" | page reviews 1
