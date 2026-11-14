@@ -1,0 +1,62 @@
+# The org's queue: every other repo's .mergify.yml extends this one
+# (docs.mergify.com/configuration/sharing). A PR enters by `@mergifyio queue`
+# from the session that opened it (org-rules.md, Git), since confirming a
+# finding is a judgement no condition can make.
+merge_queue:
+  # Each check is a CI run on the org's shared runners, which take 20 jobs at
+  # once on its plan (docs.github.com/en/actions/reference/limits).
+  max_parallel_checks: 1
+  # Its "ready to queue" box cannot confirm a finding.
+  queue_controls_comment: false
+
+# The rule's values sit here, not in the rule: a repo's own `default` rule
+# replaces this one whole, while "remote default values will apply to the
+# local configuration" (docs.mergify.com/configuration/sharing), so it sets
+# only what differs, such as a full tier in merge_conditions.
+defaults:
+  queue_rule:
+    batch_size: 5
+    # A batch takes only the PRs already queued (docs.mergify.com/merge-queue/batches),
+    # and PRs arm one by one after review; the 30-second default batches one.
+    batch_max_wait_time: 10 min
+    merge_method: squash
+    # main takes the PR's title and body, never a branch's commit messages;
+    # pr-body overrides the repo's squash setting (docs.mergify.com/workflow/actions/merge).
+    commit_message_format:
+      title: pr-title
+      body: pr-body
+    # `auto` sizes this from unloaded runs, so a backlog on the shared runners
+    # alone times a PR out and costs a full CI rerun.
+    checks_timeout: 60 min
+    # The review runs on the PR, never on the queue's draft PR, where an
+    # injected required review check would never pass: "the merge conditions
+    # for checks are evaluated against the temporary pull request"
+    # (docs.mergify.com/merge-queue/rules).
+    branch_protection_injection_mode: none
+    # `none` requires an account that satisfies the protections itself
+    # (docs.mergify.com/configuration/file-format).
+    merge_bot_account: IvanWng97
+    # The PR itself: the protections' required checks and thread resolution,
+    # restated since nothing is injected.
+    queue_conditions:
+      # A stacked PR waits until its base lands and GitHub retargets it.
+      - base = main
+      - -draft
+      # A release PR merges by hand, its repo's release step.
+      - -head ~= ^release-plz-
+      - check-success = ci-gate
+      - check-success = GitGuardian Security Checks
+      # The review skips a fork's or a bot's PR (claude-review.yml), which a
+      # human reviews.
+      - or:
+          - check-success = claude-review / claude-review
+          - check-skipped = claude-review / claude-review
+      - "#review-threads-unresolved = 0"
+    # The queue's draft PR, or the PR itself on a direct merge: "a pull request
+    # that does not satisfy them is not merged, directly or otherwise"
+    # (docs.mergify.com/merge-queue/direct-merge).
+    merge_conditions:
+      - check-success = ci-gate
+
+queue_rules:
+  - name: default
