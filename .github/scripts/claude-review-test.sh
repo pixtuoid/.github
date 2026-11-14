@@ -105,9 +105,9 @@ new_case() {
 # pr_base <ref>: the PR's live base, as the pulls endpoint serves it.
 pr_base() { jq -nc --arg ref "$1" '{base: {ref: $ref}}' >"$PAGES/pull.1.json"; }
 
-# The verdicts the diff step replays (VERDICTS' since the newest base change),
-# oldest first, as `<commit>/<C or I>/<ids>`: the
-# commit's number, complete or incomplete, and the ids listed as judged.
+# The verdicts the diff step replays (VERDICTS' a job timeout after the newest
+# base change), oldest first, as `<commit>/<C or I>/<ids>`: the commit's
+# number, complete or incomplete, and the ids listed as judged.
 assert_verdicts() {
     local name="$1" want="$2" got
     run_step "$name"
@@ -150,15 +150,16 @@ assert_verdicts incomplete-listed "1/C/ 2/I/0123456789ab,0123456789ac.2"
 
 # A manual base change can bring in hunks no earlier review saw, which the
 # replay would count as judged, so only the reviews a job timeout after the
-# newest count: review 20 may come from a run in flight at the change at 4.
+# newest count: review 40 may come from a run in flight at the change at 20,
+# and counts only from the older change at 2, which sits on the first page.
 # GitHub's own retarget after a merged base keeps them.
 new_case base-changed
-{ review "$bot" 1 'Blocking: 0'; review "$bot" 3 'Blocking: 0'; review "$bot" 20 'Blocking: 0'; review "$bot" 40 'Blocking: 0'; } | page reviews 1
+{ review "$bot" 1 'Blocking: 0'; review "$bot" 40 'Blocking: 0'; review "$bot" 55 'Blocking: 0'; } | page reviews 1
 { event labeled 1; event base_ref_changed 2; } | page events 1
-event base_ref_changed 4 | page events 2
+event base_ref_changed 20 | page events 2
 { comment 2 'finding'; comment 6 'fixed' 2 2; } | page comments 1
-assert_verdicts base-changed "40/C/"
-# The replay drops them, the recheck window does not: review 20 read the reply.
+assert_verdicts base-changed "55/C/"
+# The replay drops them, the recheck window does not: review 40 read the reply.
 assert_recheck base-changed '[]'
 new_case auto-retarget
 { review "$bot" 1 'Blocking: 0'; review "$bot" 3 'Blocking: 0'; } | page reviews 1

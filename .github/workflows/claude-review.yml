@@ -65,8 +65,9 @@ jobs:
             .[] | {id, in_reply_to_id, created_at, user: .user.login, path, line: (.line // .original_line), body}
           # A manual base change can bring in hunks no earlier review saw,
           # and the diff step replays every review against the current base,
-          # so only the reviews from after the newest change count there;
-          # every review still read the comments before it. GitHub's own
+          # so only the reviews a job timeout (RUN_MINUTES) after the newest
+          # change count there; every review still read the comments before
+          # it. GitHub's own
           # retarget, after the base merged and its hunks are main's, is
           # another event, and the issue events API documents both, the
           # timeline neither (docs.github.com/en/rest/using-the-rest-api/issue-event-types).
