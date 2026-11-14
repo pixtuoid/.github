@@ -32,9 +32,9 @@ runs:
     - name: shellcheck composite actions
       shell: bash
       # actionlint rejects action.yml, so a composite's run: blocks are
-      # shellchecked here. A `${{ }}` in one fails, which keeps expressions in
-      # `env:`, the pattern GitHub's secure-use reference gives against script
-      # injection.
+      # shellchecked here. A `${{ }}` where the shell would expand it fails,
+      # which keeps expressions in `env:`, the pattern GitHub's secure-use
+      # reference gives against script injection.
       run: |
         set -euo pipefail
         shopt -s nullglob
