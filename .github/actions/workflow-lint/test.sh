@@ -96,6 +96,10 @@ make_actions python a/action.yml "$(composite '    - shell: python
       run: print("ok")
 ')"
 assert_shellcheck python pass
+make_actions unknown-shell a/action.yml "$(composite '    - shell: perl {0}
+      run: print "ok"
+')"
+assert_shellcheck unknown-shell fail
 make_actions node a/action.yml $'name: a\ndescription: a\nruns:\n  using: node24\n  main: index.js\n'
 assert_shellcheck node pass
 make_actions none

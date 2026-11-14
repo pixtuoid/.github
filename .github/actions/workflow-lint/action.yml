@@ -1,5 +1,5 @@
 name: 'Workflow lint'
-description: "Lints the caller's workflows, composite actions and dependabot.yml: zizmor under the org's policy, actionlint with shellcheck over the workflows' run: blocks, and shellcheck over each run: block of .github/actions/* in a dialect it reads"
+description: "Lints the caller's workflows, composite actions and dependabot.yml: zizmor under the org's policy, actionlint with shellcheck over the workflows' run: blocks, and shellcheck over each run: block of .github/actions/* but a PowerShell, Python or cmd one"
 
 runs:
   using: 'composite'
@@ -31,10 +31,10 @@ runs:
       run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
     - name: shellcheck composite actions
       shell: bash
-      # actionlint rejects action.yml, so a composite's run: blocks in a
-      # dialect shellcheck reads (`shellcheck --help`, --shell) are checked
-      # here. A `${{ }}` in one fails, which keeps expressions in `env:`, the
-      # pattern GitHub's secure-use reference gives against script injection.
+      # actionlint rejects action.yml, so a composite's run: blocks are
+      # shellchecked here. A `${{ }}` in one fails, which keeps expressions in
+      # `env:`, the pattern GitHub's secure-use reference gives against script
+      # injection.
       run: |
         set -euo pipefail
         shopt -s nullglob
@@ -43,14 +43,17 @@ runs:
         status=0
         checked=0
         for action in .github/actions/*/action.y*ml; do # GitHub accepts action.yaml too
-          runs="$(yq '[.runs.steps[] | select(has("run"))] | length' "$action")"
-          for ((i = 0; i < runs; i++)); do
+          count="$(yq '[.runs.steps[] | select(has("run"))] | length' "$action")"
+          for ((i = 0; i < count; i++)); do
             step=".runs.steps | map(select(has(\"run\"))) | .[$i]"
-            # A custom shell (`/bin/bash -e {0}`) is its command's dialect.
+            # A custom shell (`/bin/bash -e {0}`) is its command's dialect
+            # (docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax,
+            # "Custom shell"). GitHub's other built-in shells are no Bourne
+            # dialect, and shellcheck refuses any other one out loud.
             shell="$(yq -r "$step.shell" "$action")"
             shell="${shell%% *}"
             shell="${shell##*/}"
-            case "$shell" in sh | bash | dash | ksh | busybox) ;; *) continue ;; esac
+            case "$shell" in pwsh | powershell | python | cmd) continue ;; esac
             script="$work/$checked.$shell"
             { echo "#!/usr/bin/env $shell"; yq -r "$step.run" "$action"; } >"$script"
             if ! shellcheck -s "$shell" "$script"; then
