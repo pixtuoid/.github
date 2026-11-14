@@ -31,8 +31,8 @@ runs:
       run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
     - name: shellcheck composite actions
       shell: bash
-      # actionlint rejects action.yml, so a composite's Bourne-shell run:
-      # blocks, the only ones shellcheck reads, are checked here. A `${{ }}`
+      # actionlint rejects action.yml, so a composite's bash and sh run:
+      # blocks, the composite shells shellcheck reads, are checked here. A `${{ }}`
       # in one fails, which keeps expressions in `env:`, the pattern GitHub's
       # secure-use reference gives against script injection.
       run: |

@@ -79,10 +79,15 @@ make_actions uses-only a/action.yml "$(composite '    - uses: foo/bar@0123456789
 ')"
 assert_shellcheck uses-only pass
 custom='shell: bash -e {0}' by_path='shell: /bin/bash -e {0}'
+# Each with a clean twin, so a fail is shellcheck's finding, never a refused shell.
 make_actions custom-shell a/action.yml "$(composite "${bad_run/shell: bash/$custom}")"
 assert_shellcheck custom-shell fail
+make_actions custom-shell-clean a/action.yml "$(composite "${clean_run/shell: bash/$custom}")"
+assert_shellcheck custom-shell-clean pass
 make_actions shell-path a/action.yml "$(composite "${bad_run/shell: bash/$by_path}")"
 assert_shellcheck shell-path fail
+make_actions shell-path-clean a/action.yml "$(composite "${clean_run/shell: bash/$by_path}")"
+assert_shellcheck shell-path-clean pass
 make_actions python a/action.yml "$(composite '    - shell: python
       run: print("ok")
 ')"
