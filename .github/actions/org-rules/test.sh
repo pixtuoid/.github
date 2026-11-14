@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# The action's own shell against fixed guides; run from the repo root.
+# The action's own shell against fixed guides and stubs; run from the repo
+# root, the stubs' source.
 set -euo pipefail
 
 fail() {
@@ -7,7 +8,10 @@ fail() {
     exit 1
 }
 
-check_script="$(yq -e -r '.runs.steps[0].run' .github/actions/org-rules/action.yml)"
+step() { yq -e -r ".runs.steps[] | select(.name == \"$1\") | .run" .github/actions/org-rules/action.yml; }
+check_script="$(step guide)"
+stubs_script="$(step stubs)"
+shared="$(yq -e -r '.runs.steps[] | select(.name == "stubs") | .env.SHARED' .github/actions/org-rules/action.yml)"
 rules=.github/actions/org-rules/org-rules.md
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -66,4 +70,56 @@ assert_check "$begin
 $end
 " fail "an empty copy"
 FILE="$work/missing.md" RULES="$rules" bash -eo pipefail -c "$check_script" >/dev/null 2>&1 && fail "passed a missing guide"
-echo "org-rules: 9 cases"
+
+# A repo named $1 holding every stub as its source holds it.
+stub_repo() {
+    local repo="$work/stubs-$1"
+    mkdir -p "$repo/.github/workflows" "$repo/.claude"
+    cp .github/workflows/review.yml "$repo/.github/workflows/review.yml"
+    cp .claude/settings.json "$repo/.claude/settings.json"
+    echo 'extends: .github' >"$repo/.mergify.yml"
+    echo "$repo"
+}
+assert_stubs() {
+    local repo="$1" name="$2" expect="$3" label="$4"
+    if (cd "$repo" && SOURCE="$OLDPWD" REPO="pixtuoid/$name" SHARED="$shared" bash -eo pipefail -c "$stubs_script") >"$work/stubs.out" 2>&1; then
+        [[ "$expect" == pass ]] || fail "passed $label"
+    else
+        [[ "$expect" == fail ]] || fail "failed $label: $(cat "$work/stubs.out")"
+    fi
+}
+
+assert_stubs "$(stub_repo ok)" lofi pass "a repo whose stubs match their source"
+repo="$(stub_repo extra-concurrency)"
+yq -i '.concurrency = {"group": "claude-review", "cancel-in-progress": true}' "$repo/.github/workflows/review.yml"
+assert_stubs "$repo" lofi fail "a review caller that gained a concurrency block"
+repo="$(stub_repo no-caller)"
+rm "$repo/.github/workflows/review.yml"
+assert_stubs "$repo" lofi fail "a repo with no review caller"
+repo="$(stub_repo no-mergify)"
+rm "$repo/.mergify.yml"
+assert_stubs "$repo" lofi fail "a repo with no .mergify.yml"
+repo="$(stub_repo own-queue)"
+printf 'queue_rules:\n  - name: default\n' >"$repo/.mergify.yml"
+assert_stubs "$repo" lofi fail "a .mergify.yml that extends nothing"
+repo="$(stub_repo source)"
+printf 'queue_rules:\n  - name: default\n' >"$repo/.mergify.yml"
+assert_stubs "$repo" .github pass "the source's own .mergify.yml, which Mergify lets extend nothing"
+repo="$(stub_repo no-settings)"
+rm "$repo/.claude/settings.json"
+assert_stubs "$repo" lofi fail "a repo with no .claude/settings.json"
+repo="$(stub_repo plugin-off)"
+jq '.enabledPlugins["pixtuoid@pixtuoid"] = false' .claude/settings.json >"$repo/.claude/settings.json"
+assert_stubs "$repo" lofi fail "settings that disable the org's plugin"
+repo="$(stub_repo no-auto-update)"
+jq 'del(.extraKnownMarketplaces.pixtuoid.autoUpdate)' .claude/settings.json >"$repo/.claude/settings.json"
+assert_stubs "$repo" lofi fail "settings whose marketplace entry differs from the source's"
+repo="$(stub_repo own-settings)"
+jq '.permissions.deny = ["Bash(gh pr merge *)"] | .enabledPlugins["other@elsewhere"] = true' .claude/settings.json >"$repo/.claude/settings.json"
+assert_stubs "$repo" lofi pass "settings that add the repo's own keys"
+repo="$(stub_repo coderabbit-yaml)"
+touch "$repo/.coderabbit.yaml"
+assert_stubs "$repo" lofi fail "a repo-level .coderabbit.yaml"
+repo="$(stub_repo coderabbit-ts)"
+touch "$repo/.coderabbit.config.ts"
+assert_stubs "$repo" lofi fail "a repo-level .coderabbit.config.ts"

@@ -1,5 +1,5 @@
 name: 'Org rules'
-description: "Fails unless the repo's agent guide carries org-rules.md verbatim between its org-rules markers"
+description: "Fails unless the repo's agent guide carries org-rules.md verbatim between its org-rules markers, and each file the repo holds to reference the org's shared config matches its source"
 
 inputs:
   file:
@@ -10,7 +10,8 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - shell: bash
+    - name: guide
+      shell: bash
       env:
         FILE: ${{ inputs.file }}
         RULES: ${{ github.action_path }}/org-rules.md
@@ -39,3 +40,43 @@ runs:
           echo "::error file=$FILE::org-rules: the copy between the markers differs from pixtuoid/.github's .github/actions/org-rules/org-rules.md; copy that file between them verbatim"
           exit 1
         fi
+    - name: stubs
+      shell: bash
+      env:
+        # The pixtuoid/.github checkout this action runs from, so each stub has
+        # one source.
+        SOURCE: ${{ github.action_path }}/../../..
+        REPO: ${{ github.repository }}
+        # The source's marketplaces and enabled plugins are the org's; a repo
+        # adds its own beside them.
+        SHARED: >-
+          $src[0] as $want
+          | (.extraKnownMarketplaces // {}) as $markets | (.enabledPlugins // {}) as $plugins
+          | ($want.extraKnownMarketplaces | to_entries | all(.value == $markets[.key]))
+            and ($want.enabledPlugins | to_entries | all(.value == $plugins[.key]))
+      run: |
+        set -euo pipefail
+        status=0
+        drift() {
+          echo "::error file=$1::org-rules: $2"
+          status=1
+        }
+        # A caller holds only what GitHub needs to start the shared review.
+        caller=.github/workflows/review.yml
+        if ! diff -u --label "pixtuoid/.github $caller" --label "$caller" "$SOURCE/$caller" "$caller"; then
+          drift "$caller" "differs from pixtuoid/.github's; copy that file verbatim"
+        fi
+        # Mergify resolves `extends` in the caller's org, and the source's own
+        # config cannot extend (docs.mergify.com/configuration/sharing).
+        if [[ "${REPO#*/}" != .github && "$(yq -r '.extends' .mergify.yml 2>/dev/null)" != .github ]]; then
+          drift .mergify.yml "needs 'extends: .github', the org's queue, and only the repo's own rules beside it"
+        fi
+        if ! jq -e --slurpfile src "$SOURCE/.claude/settings.json" "$SHARED" .claude/settings.json >/dev/null; then
+          drift .claude/settings.json "needs pixtuoid/.github's extraKnownMarketplaces and enabledPlugins entries as that repo's .claude/settings.json has them"
+        fi
+        # A repo's own file replaces the central one whole
+        # (docs.coderabbit.ai/configuration/central-configuration).
+        for own in .coderabbit.yaml .coderabbit.config.ts; do
+          [[ ! -e "$own" ]] || drift "$own" "overrides pixtuoid/coderabbit's central config; delete it"
+        done
+        exit "$status"
