@@ -1,0 +1,38 @@
+name: 'Setup Tools'
+description: "Installs the given tools of the caller's mise.toml, and only those, through mise"
+
+inputs:
+  tools:
+    description: "Comma-separated mise.toml [tools] keys, as mise's MISE_ENABLE_TOOLS takes them"
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    # The job's later steps too: mise "uses" only these, so an unlisted tool is
+    # never resolved and a versions-host outage cannot burn the job token's API
+    # budget.
+    - shell: bash
+      env:
+        TOOLS: ${{ inputs.tools }}
+      run: | # zizmor: ignore[github-env] the callers' `tools:` literals, never event data
+        set -euo pipefail
+        if [[ -z "$TOOLS" ]]; then
+          echo "::error::setup-tools: no tools given, and an empty allowlist resolves every mise.toml tool"
+          exit 1
+        fi
+        echo "MISE_ENABLE_TOOLS=$TOOLS" >>"$GITHUB_ENV"
+    - uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+      with:
+        # The action puts each tool's own directory on PATH; a shim errors
+        # outside the checkout, where no mise.toml names its version.
+        add_shims_to_path: false
+        # A GitHub Releases outage fails a fresh install, never a cache hit.
+        # The default key leaves out MISE_ENABLE_TOOLS.
+        cache_key: '{{default}}-${{ inputs.tools }}'
+        # Every ref restores main's copy, so a save from another ref only
+        # evicts main's entries.
+        cache_save: ${{ github.ref == 'refs/heads/main' }}
+        # A hit still resolves each `latest` and downloads any newer release,
+        # so a daily rebuild keeps those downloads to a day's releases.
+        cache_max_age_days: 1
