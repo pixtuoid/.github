@@ -78,6 +78,9 @@ assert_shellcheck yaml-extension fail
 make_actions uses-only a/action.yml "$(composite '    - uses: foo/bar@0123456789abcdef0123456789abcdef01234567
 ')"
 assert_shellcheck uses-only pass
+custom='shell: bash -e {0}'
+make_actions custom-shell a/action.yml "$(composite "${bad_run/shell: bash/$custom}")"
+assert_shellcheck custom-shell fail
 make_actions python a/action.yml "$(composite '    - shell: python
       run: print("ok")
 ')"

@@ -83,6 +83,6 @@ finding's own skeptic tries to refute it by default, and a security or
 concurrency finding gets two or three differentiated ones, kept on a
 majority. Loop until two consecutive rounds come back empty, then ask which
 modality no round ran and run it. Dedup and rank the survivors for the owner,
-beside the list of findings refuted as deliberate, and sweep the tree for each
+beside the refuted ones and why each fell, and sweep the tree for each
 stale phrase a fix leaves; each one kept lands as its own PR or a Roadmap draft
 item.

@@ -8,6 +8,7 @@ catches.
 **Published contracts** here, each one every other repo runs from `main`: a
 reusable workflow's or composite action's inputs, outputs and secrets; a check
 name (`ci-gate`, `claude-review / claude-review`); the review's verdict line;
+what a shared action fails on, the bundled zizmor policy included;
 `.mergify.yml`'s rules; the plugin's skill names; org-rules.md and the stubs
 its action checks.
 

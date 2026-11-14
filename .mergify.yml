@@ -6,7 +6,8 @@ merge_queue:
   # Each check is a CI run on the org's shared runners, which take 20 jobs at
   # once on its plan (docs.github.com/en/actions/reference/limits).
   max_parallel_checks: 1
-  # Its "ready to queue" box cannot confirm a finding.
+  # Its checkbox queues a PR in place of `@mergifyio queue`
+  # (docs.mergify.com/configuration/file-format), and a tick confirms no finding.
   queue_controls_comment: false
 
 # The rule's values sit here, not in the rule: a repo's own `default` rule
@@ -17,7 +18,8 @@ defaults:
   queue_rule:
     batch_size: 5
     # A batch takes only the PRs already queued (docs.mergify.com/merge-queue/batches),
-    # and PRs arm one by one after review; the 30-second default batches one.
+    # and PRs are queued one by one after review; the 30-second default
+    # batches one.
     batch_max_wait_time: 10 min
     merge_method: squash
     # main takes the PR's title and body, never a branch's commit messages;

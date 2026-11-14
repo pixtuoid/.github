@@ -64,7 +64,8 @@ jobs:
             .[] | {id, in_reply_to_id, created_at, user: .user.login, path, line: (.line // .original_line), body}
           # A manual base change can bring in hunks no earlier review saw,
           # and the diff step replays every review against the current base,
-          # so only the reviews after the newest change count. GitHub's own
+          # so only the reviews after the newest change count there; every
+          # review still read the comments before it. GitHub's own
           # retarget, after the base merged and its hunks are main's, is
           # another event, and the issue events API documents both, the
           # timeline neither (docs.github.com/en/rest/using-the-rest-api/issue-event-types).
@@ -80,10 +81,10 @@ jobs:
           set -euo pipefail
           dir="$RUNNER_TEMP/review-context"
           mkdir -p "$dir"
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews?per_page=100" --jq "$VERDICTS" >"$dir/reviews.jsonl"
           base_changed="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/events?per_page=100" --jq "$BASE_CHANGES" | sort | tail -n 1)"
-          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews?per_page=100" --jq "$VERDICTS" |
-            jq -c --arg since "$base_changed" 'select(.submitted_at > $since)' >"$dir/verdicts.jsonl"
-          reviewed="$(jq -r '"\(.commit_id) \(.submitted_at)"' "$dir/verdicts.jsonl")"
+          jq -c --arg since "$base_changed" 'select(.submitted_at > $since)' "$dir/reviews.jsonl" >"$dir/verdicts.jsonl"
+          reviewed="$(jq -r '"\(.commit_id) \(.submitted_at)"' "$dir/reviews.jsonl")"
           # The concurrency group runs one review at a time, so the last one
           # read the comments after the one before it was submitted; a reply
           # since then may be one no review has checked.

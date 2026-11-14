@@ -147,7 +147,10 @@ new_case base-changed
 { review "$bot" 1 'Blocking: 0'; review "$bot" 3 'Blocking: 0'; review "$bot" 5 'Blocking: 0'; } | page reviews 1
 { event labeled 1; event base_ref_changed 2; } | page events 1
 event base_ref_changed 4 | page events 2
+{ comment 2 'finding'; comment 6 'fixed' 2 2; } | page comments 1
 assert_verdicts base-changed "5/C/"
+# The replay drops them, the recheck window does not: review 3 read the reply.
+assert_recheck base-changed '[]'
 new_case auto-retarget
 { review "$bot" 1 'Blocking: 0'; review "$bot" 3 'Blocking: 0'; } | page reviews 1
 event automatic_base_change_succeeded 2 | page events 1
