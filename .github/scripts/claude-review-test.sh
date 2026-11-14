@@ -15,6 +15,9 @@ verdicts_jq="$(yq -e -r "$step | .env.VERDICTS" "$WORKFLOW_FILE")"
 comment_jq="$(yq -e -r "$step | .env.COMMENT" "$WORKFLOW_FILE")"
 recheck_jq="$(yq -e -r "$step | .env.RECHECK" "$WORKFLOW_FILE")"
 base_changes_jq="$(yq -e -r "$step | .env.BASE_CHANGES" "$WORKFLOW_FILE")"
+run_minutes="$(yq -e -r "$step | .env.RUN_MINUTES" "$WORKFLOW_FILE")"
+[[ "$run_minutes" == "$(yq -e -r '.jobs.claude-review.timeout-minutes' "$WORKFLOW_FILE")" ]] ||
+    fail "the scope step's RUN_MINUTES is not the job's timeout-minutes"
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -75,7 +78,7 @@ run_step() {
     : >"$out"
     PAGES="$PAGES" GITHUB_REPOSITORY=org/repo PR=7 RUNNER_TEMP="$work/$1.tmp" GITHUB_OUTPUT="$out" \
         VERDICTS="$verdicts_jq" COMMENT="$comment_jq" RECHECK="$recheck_jq" BASE_CHANGES="$base_changes_jq" BASE_REF=main \
-        bash --noprofile --norc -eo pipefail -c "$script" || fail "$1: the step failed"
+        RUN_MINUTES="$run_minutes" bash --noprofile --norc -eo pipefail -c "$script" || fail "$1: the step failed"
     dir="$(sed -n 's/^dir=//p' "$out")"
     comments="$(sed -n 's/^comments=//p' "$out")"
     recheck="$(sed -n 's/^recheck=//p' "$out")"
@@ -146,23 +149,24 @@ new_case incomplete-listed
 assert_verdicts incomplete-listed "1/C/ 2/I/0123456789ab,0123456789ac.2"
 
 # A manual base change can bring in hunks no earlier review saw, which the
-# replay would count as judged, so only the reviews after the newest count;
+# replay would count as judged, so only the reviews a job timeout after the
+# newest count: review 20 may come from a run in flight at the change at 4.
 # GitHub's own retarget after a merged base keeps them.
 new_case base-changed
-{ review "$bot" 1 'Blocking: 0'; review "$bot" 3 'Blocking: 0'; review "$bot" 5 'Blocking: 0'; } | page reviews 1
+{ review "$bot" 1 'Blocking: 0'; review "$bot" 3 'Blocking: 0'; review "$bot" 20 'Blocking: 0'; review "$bot" 40 'Blocking: 0'; } | page reviews 1
 { event labeled 1; event base_ref_changed 2; } | page events 1
 event base_ref_changed 4 | page events 2
 { comment 2 'finding'; comment 6 'fixed' 2 2; } | page comments 1
-assert_verdicts base-changed "5/C/"
-# The replay drops them, the recheck window does not: review 3 read the reply.
+assert_verdicts base-changed "40/C/"
+# The replay drops them, the recheck window does not: review 20 read the reply.
 assert_recheck base-changed '[]'
 new_case auto-retarget
 { review "$bot" 1 'Blocking: 0'; review "$bot" 3 'Blocking: 0'; } | page reviews 1
 event automatic_base_change_succeeded 2 | page events 1
 assert_verdicts auto-retarget "1/C/ 3/C/"
 
-# A re-run keeps its event, so one started before a retarget reads the base
-# the PR has left; it fails, never posting a verdict judged on that base.
+# A re-run keeps its event, so a re-run after a retarget of a run from before
+# it reads the base the PR has left; it fails, never posting a verdict.
 new_case stale-base
 pr_base other
 if PAGES="$PAGES" GITHUB_REPOSITORY=org/repo PR=7 RUNNER_TEMP="$work/stale-base.tmp" GITHUB_OUTPUT="$work/stale-base.out" \
