@@ -24,8 +24,10 @@ runs:
     - name: actionlint
       shell: bash
       # It shellchecks each workflow's run: blocks with the shellcheck above.
-      # No updater reads a `go run` version, so this one moves by hand, with
-      # the bump rhysd/actionlint#711 needs (zizmor.yml).
+      # Dependabot keeps "references to actions" current
+      # (docs.github.com/en/code-security/dependabot/working-with-dependabot/keeping-your-actions-up-to-date-with-dependabot),
+      # never a `go run` argument, so this one moves by hand, with the bump
+      # rhysd/actionlint#711 needs (zizmor.yml).
       run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
     - name: shellcheck composite actions
       shell: bash
@@ -44,9 +46,10 @@ runs:
           runs="$(yq '[.runs.steps[] | select(has("run"))] | length' "$action")"
           for ((i = 0; i < runs; i++)); do
             step=".runs.steps | map(select(has(\"run\"))) | .[$i]"
-            # A custom shell (`bash -e {0}`) is its first word's dialect.
+            # A custom shell (`/bin/bash -e {0}`) is its command's dialect.
             shell="$(yq -r "$step.shell" "$action")"
             shell="${shell%% *}"
+            shell="${shell##*/}"
             [[ "$shell" == bash || "$shell" == sh ]] || continue
             script="$work/$checked.$shell"
             { echo "#!/usr/bin/env $shell"; yq -r "$step.run" "$action"; } >"$script"

@@ -98,7 +98,8 @@ new_case() {
     for kind in reviews comments events; do printf '' | page "$kind" 1; done
 }
 
-# The verdicts VERDICTS kept, oldest first, as `<commit>/<C or I>/<ids>`: the
+# The verdicts the diff step replays (VERDICTS' since the newest base change),
+# oldest first, as `<commit>/<C or I>/<ids>`: the
 # commit's number, complete or incomplete, and the ids listed as judged.
 assert_verdicts() {
     local name="$1" want="$2" got
