@@ -25,8 +25,10 @@ defaults:
     commit_message_format:
       title: pr-title
       body: pr-body
-    # `auto` sizes this from unloaded runs, so a backlog on the shared runners
-    # alone times a PR out and costs a full CI rerun.
+    # `auto`, the 95th percentile of the queue's recent runs
+    # (docs.mergify.com/configuration/file-format), dequeued pixtuoid#1266 at
+    # 24m44s while its checks waited on backlogged runners, which took up to
+    # 48 minutes that week (pixtuoid#1271); each dequeue costs a CI rerun.
     checks_timeout: 60 min
     # The review runs on the PR, never on the queue's draft PR, where an
     # injected required review check would never pass: "the merge conditions

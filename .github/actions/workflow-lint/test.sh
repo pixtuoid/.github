@@ -78,6 +78,10 @@ assert_shellcheck yaml-extension fail
 make_actions uses-only a/action.yml "$(composite '    - uses: foo/bar@0123456789abcdef0123456789abcdef01234567
 ')"
 assert_shellcheck uses-only pass
+make_actions python a/action.yml "$(composite '    - shell: python
+      run: print("ok")
+')"
+assert_shellcheck python pass
 make_actions node a/action.yml $'name: a\ndescription: a\nruns:\n  using: node24\n  main: index.js\n'
 assert_shellcheck node pass
 make_actions none

@@ -66,7 +66,8 @@ jobs:
           # and the diff step replays every review against the current base,
           # so only the reviews after the newest change count. GitHub's own
           # retarget, after the base merged and its hunks are main's, is
-          # another event (docs.github.com/en/rest/using-the-rest-api/issue-event-types).
+          # another event, and the issue events API documents both, the
+          # timeline neither (docs.github.com/en/rest/using-the-rest-api/issue-event-types).
           BASE_CHANGES: >-
             .[] | select(.event == "base_ref_changed") | .created_at
           # GitHub stores a reply to a reply as one to its thread's first
@@ -79,9 +80,9 @@ jobs:
           set -euo pipefail
           dir="$RUNNER_TEMP/review-context"
           mkdir -p "$dir"
-          rebased="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/timeline?per_page=100" --jq "$BASE_CHANGES" | sort | tail -n 1)"
+          base_changed="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/events?per_page=100" --jq "$BASE_CHANGES" | sort | tail -n 1)"
           gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews?per_page=100" --jq "$VERDICTS" |
-            jq -c --arg since "$rebased" 'select(.submitted_at > $since)' >"$dir/verdicts.jsonl"
+            jq -c --arg since "$base_changed" 'select(.submitted_at > $since)' >"$dir/verdicts.jsonl"
           reviewed="$(jq -r '"\(.commit_id) \(.submitted_at)"' "$dir/verdicts.jsonl")"
           # The concurrency group runs one review at a time, so the last one
           # read the comments after the one before it was submitted; a reply

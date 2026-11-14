@@ -24,11 +24,15 @@ runs:
     - name: actionlint
       shell: bash
       # It shellchecks each workflow's run: blocks with the shellcheck above.
+      # No updater reads a `go run` version, so this one moves by hand, with
+      # the bump rhysd/actionlint#711 needs (zizmor.yml).
       run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
     - name: shellcheck composite actions
       shell: bash
-      # actionlint rejects action.yml, so a composite's run: blocks are
-      # shellchecked here.
+      # actionlint rejects action.yml, so a composite's Bourne-shell run:
+      # blocks, the only ones shellcheck reads, are checked here. A `${{ }}`
+      # in one fails, which keeps expressions in `env:`, the pattern GitHub's
+      # secure-use reference gives against script injection.
       run: |
         set -euo pipefail
         shopt -s nullglob
@@ -41,6 +45,7 @@ runs:
           for ((i = 0; i < runs; i++)); do
             step=".runs.steps | map(select(has(\"run\"))) | .[$i]"
             shell="$(yq -r "$step.shell" "$action")"
+            [[ "$shell" == bash || "$shell" == sh ]] || continue
             script="$work/$checked.$shell"
             { echo "#!/usr/bin/env $shell"; yq -r "$step.run" "$action"; } >"$script"
             if ! shellcheck -s "$shell" "$script"; then

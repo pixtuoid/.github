@@ -38,7 +38,7 @@ gh() {
     case "$path" in
     "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews?per_page=100") kind=reviews ;;
     "repos/$GITHUB_REPOSITORY/pulls/$PR/comments?per_page=100") kind=comments ;;
-    "repos/$GITHUB_REPOSITORY/issues/$PR/timeline?per_page=100") kind=timeline ;;
+    "repos/$GITHUB_REPOSITORY/issues/$PR/events?per_page=100") kind=events ;;
     *) echo "gh stub: unexpected path $path" >&2; return 1 ;;
     esac
     local page=1
@@ -63,7 +63,7 @@ comment() {
     jq -nc --argjson id "$1" --arg body "$2" --argjson to "${3:-null}" --arg at "$(at "${4:-$1}")" \
         '{id: $id, in_reply_to_id: $to, created_at: $at, user: {login: "github-actions[bot]"}, path: "a.rs", line: null, original_line: 7, body: $body, diff_hunk: "@@"}'
 }
-# event <type> <minute created>, a PR timeline event.
+# event <type> <minute created>, an issue event of the PR.
 event() { jq -nc --arg ev "$1" --arg at "$(at "$2")" '{event: $ev, created_at: $at}'; }
 page() { jq -sc . >"$PAGES/$1.$2.json"; }
 
@@ -95,7 +95,7 @@ assert_recheck() {
 new_case() {
     PAGES="$work/$1"
     mkdir -p "$PAGES"
-    for kind in reviews comments timeline; do printf '' | page "$kind" 1; done
+    for kind in reviews comments events; do printf '' | page "$kind" 1; done
 }
 
 # The verdicts VERDICTS kept, oldest first, as `<commit>/<C or I>/<ids>`: the
@@ -145,12 +145,12 @@ assert_verdicts incomplete-listed "1/C/ 2/I/0123456789ab,0123456789ac.2"
 # GitHub's own retarget after a merged base keeps them.
 new_case base-changed
 { review "$bot" 1 'Blocking: 0'; review "$bot" 3 'Blocking: 0'; review "$bot" 5 'Blocking: 0'; } | page reviews 1
-{ event commented 1; event base_ref_changed 2; } | page timeline 1
-event base_ref_changed 4 | page timeline 2
+{ event labeled 1; event base_ref_changed 2; } | page events 1
+event base_ref_changed 4 | page events 2
 assert_verdicts base-changed "5/C/"
 new_case auto-retarget
 { review "$bot" 1 'Blocking: 0'; review "$bot" 3 'Blocking: 0'; } | page reviews 1
-event automatic_base_change_succeeded 2 | page timeline 1
+event automatic_base_change_succeeded 2 | page events 1
 assert_verdicts auto-retarget "1/C/ 3/C/"
 
 # The MCP tool stops at 100 comments, the oldest, so the newest round's

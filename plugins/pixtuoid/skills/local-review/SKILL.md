@@ -29,17 +29,20 @@ them into one commit.
      tools: `git diff <base>...<head>`, the worktree's files, and
      `gh pr view <number> --json title,body` or the planned title and body;
    - the rules are step 2's;
-   - on an open PR, every review thread, resolved or not, with its replies
-     (the query below), so a settled finding never returns and a reply that
-     refutes one is checked as CI's recheck is;
+   - on an open PR, every review comment, resolved or not, as CI reads them
+     (`gh api --paginate repos/{owner}/{repo}/pulls/<number>/comments`), so a
+     settled finding never returns and a reply that refutes one is checked as
+     CI's recheck is;
    - a reviewer may fetch the docs a best-practice question needs, which CI's
      can't.
 
    Spawn the two reviewers in parallel, then one verifier per candidate. A
    one-word or placeholder return is no review: re-run that reviewer alone.
 4. **Verify** every kept finding's premise yourself before fixing it: read the
-   comments on the item it names first. Refute one that REVIEW.md's Do not
-   flag covers, or deliberate design, as the org rules' Review findings say.
+   comments on the item it names first. Refute one whose premise fails,
+   such as one a REVIEW.md Do not flag covers or a comment on the item
+   documents as deliberate, and answer it as the org rules' Review findings
+   say.
 5. **Fold** the accepted findings into one commit.
 6. **Run each must-run item** REVIEW.md lists that the change touches, on that
    final head, and write its result into the PR body as the item asks, its
@@ -53,8 +56,9 @@ them into one commit.
    # Off the diff's lines: `-f subject_type=file` in place of line and side.
    gh api repos/{owner}/{repo}/pulls/$pr/comments -f commit_id=$head \
      -f path=<path> -F line=<n> -f side=RIGHT -F body=@<finding file>
-   threads='query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){reviewThreads(first:100){totalCount nodes{id isResolved isOutdated path line comments(first:50){nodes{author{login} createdAt body}}}}}}}'
-   gh api graphql -F owner='{owner}' -F name='{repo}' -F n=$pr -f query="$threads"
+   # Each thread's id beside its first comment, every page of them.
+   threads='query($owner:String!,$name:String!,$n:Int!,$endCursor:String){repository(owner:$owner,name:$name){pullRequest(number:$n){reviewThreads(first:100,after:$endCursor){pageInfo{hasNextPage endCursor} nodes{id isResolved path line comments(first:1){nodes{databaseId body}}}}}}}'
+   gh api graphql --paginate -F owner='{owner}' -F name='{repo}' -F n=$pr -f query="$threads"
    gh api graphql -f t=<thread id> -F b=@<disposition file> \
      -f query='mutation($t:ID!,$b:String!){addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$t,body:$b}){comment{id}}}'
    gh api graphql -f t=<thread id> \

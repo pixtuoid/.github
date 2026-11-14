@@ -3,8 +3,9 @@
 # The org's one policy: a repo-specific exception is an inline
 # `# zizmor: ignore[<audit>]` with its why, on the line it covers.
 rules:
-  # actionlint checks a local action's inputs only at `./` and rejects `$/`
-  # (rhysd/actionlint#711, observed on 1.7.12), the form this audit asks for.
+  # actionlint checks a local action's inputs only at `./` and rejects `$/`,
+  # the form this audit asks for (observed on 1.7.12); once
+  # rhysd/actionlint#711 ships, the audit returns and callers move to `$/`.
   self-repository:
     disable: true
   unpinned-uses:

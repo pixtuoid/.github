@@ -13,16 +13,16 @@ its action checks.
 
 ## Do not flag
 
-- Anything [`ci.yml`](.github/workflows/ci.yml) gates, each action's `test.sh`
-  included; pure style.
+- A defect zizmor, actionlint, shellcheck or a `test.sh` case that
+  [`ci.yml`](.github/workflows/ci.yml) runs already reports; pure style.
 - Behavior documented where it is constrained: read the item's comments first.
 - Risks that need unreachable preconditions.
 
 ## Correctness
 
 - **Fails closed**: a gate here (require-jobs, the review's verdict step,
-  org-rules, workflow-lint) fails on an empty, missing, skipped or cancelled
-  input instead of passing vacuously.
+  org-rules) fails on an empty, missing, skipped or cancelled input instead of
+  passing vacuously.
 - **Security**: a secret in a command or log, event data spliced into a shell,
   or a permission the diff widens.
 
