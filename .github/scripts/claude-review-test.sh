@@ -39,6 +39,7 @@ gh() {
     "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews?per_page=100") kind=reviews ;;
     "repos/$GITHUB_REPOSITORY/pulls/$PR/comments?per_page=100") kind=comments ;;
     "repos/$GITHUB_REPOSITORY/issues/$PR/events?per_page=100") kind=events ;;
+    "repos/$GITHUB_REPOSITORY/pulls/$PR") kind=pull ;;
     *) echo "gh stub: unexpected path $path" >&2; return 1 ;;
     esac
     local page=1
@@ -73,7 +74,7 @@ run_step() {
     local out="$work/$1.out"
     : >"$out"
     PAGES="$PAGES" GITHUB_REPOSITORY=org/repo PR=7 RUNNER_TEMP="$work/$1.tmp" GITHUB_OUTPUT="$out" \
-        VERDICTS="$verdicts_jq" COMMENT="$comment_jq" RECHECK="$recheck_jq" BASE_CHANGES="$base_changes_jq" \
+        VERDICTS="$verdicts_jq" COMMENT="$comment_jq" RECHECK="$recheck_jq" BASE_CHANGES="$base_changes_jq" BASE_REF=main \
         bash --noprofile --norc -eo pipefail -c "$script" || fail "$1: the step failed"
     dir="$(sed -n 's/^dir=//p' "$out")"
     comments="$(sed -n 's/^comments=//p' "$out")"
@@ -96,7 +97,10 @@ new_case() {
     PAGES="$work/$1"
     mkdir -p "$PAGES"
     for kind in reviews comments events; do printf '' | page "$kind" 1; done
+    pr_base main
 }
+# pr_base <ref>: the PR's live base, as the pulls endpoint serves it.
+pr_base() { jq -nc --arg ref "$1" '{base: {ref: $ref}}' >"$PAGES/pull.1.json"; }
 
 # The verdicts the diff step replays (VERDICTS' since the newest base change),
 # oldest first, as `<commit>/<C or I>/<ids>`: the
@@ -156,6 +160,17 @@ new_case auto-retarget
 { review "$bot" 1 'Blocking: 0'; review "$bot" 3 'Blocking: 0'; } | page reviews 1
 event automatic_base_change_succeeded 2 | page events 1
 assert_verdicts auto-retarget "1/C/ 3/C/"
+
+# A re-run keeps its event, so one started before a retarget reads the base
+# the PR has left; it fails, never posting a verdict judged on that base.
+new_case stale-base
+pr_base other
+if PAGES="$PAGES" GITHUB_REPOSITORY=org/repo PR=7 RUNNER_TEMP="$work/stale-base.tmp" GITHUB_OUTPUT="$work/stale-base.out" \
+    VERDICTS="$verdicts_jq" COMMENT="$comment_jq" RECHECK="$recheck_jq" BASE_CHANGES="$base_changes_jq" BASE_REF=main \
+    bash --noprofile --norc -eo pipefail -c "$script" >"$work/stale-base.log" 2>&1; then
+    fail "stale-base: a run whose base the PR has left passed"
+fi
+grep -q '^::error::' "$work/stale-base.log" || fail "stale-base: the step crashed: $(cat "$work/stale-base.log")"
 
 # The MCP tool stops at 100 comments, the oldest, so the newest round's
 # findings were the ones a re-review could not see.

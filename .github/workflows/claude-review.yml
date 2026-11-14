@@ -48,6 +48,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
           # Every review's verdict, and for an incomplete one the ids of the
           # units it lists as judged; any other line is ignored, so a unit it
           # leaves off, or a line it garbles, stays in the next scope.
@@ -81,6 +82,14 @@ jobs:
           set -euo pipefail
           dir="$RUNNER_TEMP/review-context"
           mkdir -p "$dir"
+          # A re-run keeps its original event (docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs),
+          # so one started before a retarget would judge the base the PR left
+          # and post its verdict at the same head.
+          live_base="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq .base.ref)"
+          if [[ "$live_base" != "$BASE_REF" ]]; then
+            echo "::error::the PR's base is now $live_base, not this run's $BASE_REF: run the newest review instead"
+            exit 1
+          fi
           gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews?per_page=100" --jq "$VERDICTS" >"$dir/reviews.jsonl"
           base_changed="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/events?per_page=100" --jq "$BASE_CHANGES" | sort | tail -n 1)"
           jq -c --arg since "$base_changed" 'select(.submitted_at > $since)' "$dir/reviews.jsonl" >"$dir/verdicts.jsonl"
