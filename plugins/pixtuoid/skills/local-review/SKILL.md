@@ -39,8 +39,7 @@ them into one commit.
    one-word or placeholder return is no review: re-run that reviewer alone.
 4. **Verify** every kept finding's premise yourself before fixing it: read the
    comments on the item it names first. Refute one that REVIEW.md's Do not
-   flag covers, or deliberate design, with its mechanism (the org rules'
-   Review findings).
+   flag covers, or deliberate design, as the org rules' Review findings say.
 5. **Fold** the accepted findings into one commit.
 6. **Run each must-run item** REVIEW.md lists that the change touches, on that
    final head, and write its result into the PR body as the item asks, its
@@ -70,13 +69,16 @@ The tree, where what no diff shows lives: drift between docs and code,
 invariants eroded across PRs, debt that accreted, coverage gaps, orphaned
 surface. Fan out one finder per module or subsystem in AGENTS.md's map, one
 per invariant AGENTS.md names, and one per factor: the security threat model,
-concurrency and liveness, performance on hot paths, silent failure, the CI
-pipeline, and upkeep, the Proportion lens's "delete it" over every mechanism;
-then a one-source census. Each `Pre-existing:` line the CI review summarized
-on a closed PR, merged or not, is a finding too, and one fixed since fails its
-skeptic like any other. Each finding's own skeptic tries to refute it by
-default, and a security or concurrency finding gets two or three
-differentiated ones, kept on a majority. Loop until two consecutive rounds
-come back empty, then ask which modality no round ran and run it. Rank the
-survivors for the owner; each one kept lands as its own PR or a Roadmap draft
+concurrency and liveness, performance on hot paths, mutation depth on hot
+logic, silent failure, deep modules, the CI pipeline, and upkeep, the
+Proportion lens's "delete it" over every mechanism; then a system lens
+(decomposition, dependency directions) and a one-source census. Each
+`Pre-existing:` line the CI review summarized on a closed PR, merged or not,
+is a finding too, and one fixed since fails its skeptic like any other. Each
+finding's own skeptic tries to refute it by default, and a security or
+concurrency finding gets two or three differentiated ones, kept on a
+majority. Loop until two consecutive rounds come back empty, then ask which
+modality no round ran and run it. Dedup and rank the survivors for the owner,
+beside the list of findings refuted as deliberate, and sweep the tree for each
+stale phrase a fix leaves; each one kept lands as its own PR or a Roadmap draft
 item.

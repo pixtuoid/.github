@@ -1,5 +1,5 @@
 name: 'Org rules'
-description: "Fails unless the repo's agent guide carries org-rules.md verbatim between its org-rules markers, and each file the repo holds to reference the org's shared config matches its source"
+description: "Fails unless the repo's agent guide carries org-rules.md verbatim between its org-rules markers, the repo's stubs of the org's shared config match their source, and no repo-level CodeRabbit config overrides the central one"
 
 inputs:
   file:

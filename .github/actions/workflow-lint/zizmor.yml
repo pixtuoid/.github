@@ -9,9 +9,12 @@ rules:
     disable: true
   unpinned-uses:
     config:
-      # Every other action is hash-pinned, zizmor's default since v1.20.0: "a
-      # tag can be moved or deleted if a bad actor gains access to the
-      # repository storing the action" (GitHub's secure-use reference).
+      # Every other action is hash-pinned, zizmor's default since v1.20.0
+      # (docs.zizmor.sh/audits/#unpinned-uses): "a tag can be moved or
+      # deleted if a bad actor gains access to the repository storing the
+      # action" (docs.github.com/en/actions/reference/security/secure-use).
+      # That page ranks a workflow lockfile first, which would also lock each
+      # repo's `pixtuoid/.github/*@main` to one commit.
       policies:
         # The org's shared workflows and actions run at `@main`, which changes
         # only through a PR (https://github.com/pixtuoid/.github/rules/24918053).

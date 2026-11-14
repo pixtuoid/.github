@@ -14,6 +14,7 @@ script="$(yq -e -r "$step | .run" "$WORKFLOW_FILE")"
 verdicts_jq="$(yq -e -r "$step | .env.VERDICTS" "$WORKFLOW_FILE")"
 comment_jq="$(yq -e -r "$step | .env.COMMENT" "$WORKFLOW_FILE")"
 recheck_jq="$(yq -e -r "$step | .env.RECHECK" "$WORKFLOW_FILE")"
+base_changes_jq="$(yq -e -r "$step | .env.BASE_CHANGES" "$WORKFLOW_FILE")"
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -37,6 +38,7 @@ gh() {
     case "$path" in
     "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews?per_page=100") kind=reviews ;;
     "repos/$GITHUB_REPOSITORY/pulls/$PR/comments?per_page=100") kind=comments ;;
+    "repos/$GITHUB_REPOSITORY/issues/$PR/timeline?per_page=100") kind=timeline ;;
     *) echo "gh stub: unexpected path $path" >&2; return 1 ;;
     esac
     local page=1
@@ -61,6 +63,8 @@ comment() {
     jq -nc --argjson id "$1" --arg body "$2" --argjson to "${3:-null}" --arg at "$(at "${4:-$1}")" \
         '{id: $id, in_reply_to_id: $to, created_at: $at, user: {login: "github-actions[bot]"}, path: "a.rs", line: null, original_line: 7, body: $body, diff_hunk: "@@"}'
 }
+# event <type> <minute created>, a PR timeline event.
+event() { jq -nc --arg ev "$1" --arg at "$(at "$2")" '{event: $ev, created_at: $at}'; }
 page() { jq -sc . >"$PAGES/$1.$2.json"; }
 
 # Runs the step over the pages a case wrote and sets $dir, $comments,
@@ -69,7 +73,7 @@ run_step() {
     local out="$work/$1.out"
     : >"$out"
     PAGES="$PAGES" GITHUB_REPOSITORY=org/repo PR=7 RUNNER_TEMP="$work/$1.tmp" GITHUB_OUTPUT="$out" \
-        VERDICTS="$verdicts_jq" COMMENT="$comment_jq" RECHECK="$recheck_jq" \
+        VERDICTS="$verdicts_jq" COMMENT="$comment_jq" RECHECK="$recheck_jq" BASE_CHANGES="$base_changes_jq" \
         bash --noprofile --norc -eo pipefail -c "$script" || fail "$1: the step failed"
     dir="$(sed -n 's/^dir=//p' "$out")"
     comments="$(sed -n 's/^comments=//p' "$out")"
@@ -91,7 +95,7 @@ assert_recheck() {
 new_case() {
     PAGES="$work/$1"
     mkdir -p "$PAGES"
-    for kind in reviews comments; do printf '' | page "$kind" 1; done
+    for kind in reviews comments timeline; do printf '' | page "$kind" 1; done
 }
 
 # The verdicts VERDICTS kept, oldest first, as `<commit>/<C or I>/<ids>`: the
@@ -135,6 +139,19 @@ new_case incomplete-listed
     review "$bot" 2 $'Blocking: incomplete\n\nRead:\n- 0123456789ab src/x.rs:+40,3\n \t\n- 0123456789ac.2 b.rs:+1,1,+9,1\n  - 0123456789ad a.rs:+12,1\n- a.rs: fn foo\nthen prose\n'
 } | page reviews 1
 assert_verdicts incomplete-listed "1/C/ 2/I/0123456789ab,0123456789ac.2"
+
+# A manual base change can bring in hunks no earlier review saw, which the
+# replay would count as judged, so only the reviews after the newest count;
+# GitHub's own retarget after a merged base keeps them.
+new_case base-changed
+{ review "$bot" 1 'Blocking: 0'; review "$bot" 3 'Blocking: 0'; review "$bot" 5 'Blocking: 0'; } | page reviews 1
+{ event commented 1; event base_ref_changed 2; } | page timeline 1
+event base_ref_changed 4 | page timeline 2
+assert_verdicts base-changed "5/C/"
+new_case auto-retarget
+{ review "$bot" 1 'Blocking: 0'; review "$bot" 3 'Blocking: 0'; } | page reviews 1
+event automatic_base_change_succeeded 2 | page timeline 1
+assert_verdicts auto-retarget "1/C/ 3/C/"
 
 # The MCP tool stops at 100 comments, the oldest, so the newest round's
 # findings were the ones a re-review could not see.
@@ -253,8 +270,8 @@ a_id="$(ids_of whole a)" p2_id="$(ids_of whole p2)"
 } | run_diff reruns "$merge"
 [[ "$(paths reruns)" == ".gitattributes " ]] || fail "diff reruns: want only .gitattributes left, got: $(paths reruns)"
 
-# An edit of the title, body or base re-runs the review at the same head, and
-# after a complete review there no unit is left, so it reads the title and body.
+# An edit of the title or body re-runs the review at the same head, and after
+# a complete review there no unit is left, so it reads the title and body.
 verdict "$merge" false | run_diff edited "$merge"
 [[ -z "$(paths edited)" ]] || fail "diff edited: a complete review at the head left units in scope: $(paths edited)"
 

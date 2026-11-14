@@ -23,15 +23,12 @@ enabled() {
     cat "$work/env"
 }
 
-[[ "$(enabled 'just,aqua:rhysd/actionlint')" == 'MISE_ENABLE_TOOLS=just,aqua:rhysd/actionlint' ]] ||
-    fail "the tools are not mise's allowlist as given"
-# `required: true` is advisory, and an empty allowlist would let mise resolve
-# every configured tool.
+[[ "$(enabled 'just aqua:rhysd/actionlint')" == 'MISE_ENABLE_TOOLS=just,aqua:rhysd/actionlint' ]] ||
+    fail "the tools are not mise's comma-separated allowlist"
 [[ "$(enabled '')" == failed ]] || fail "an empty tools passed"
 
-# Every ref restores main's cache, so a save from another ref only evicts
-# main's entries, with nothing red; and the default key leaves the tool set
-# out, so jobs with other sets would share one entry.
+# Neither input's loss turns anything red: a save from another ref only
+# evicts main's entries, and jobs with other tool sets would share one.
 with='.runs.steps[] | select(.uses // "" | test("^jdx/mise-action@")) | .with'
 # shellcheck disable=SC2016 # the literal GitHub expression syntax
 [[ "$(yq -r "$with.cache_save" "$action")" == '${{ github.ref == '"'refs/heads/main'"' }}' ]] ||

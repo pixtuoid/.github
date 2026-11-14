@@ -71,7 +71,7 @@ $end
 " fail "an empty copy"
 FILE="$work/missing.md" RULES="$rules" bash -eo pipefail -c "$check_script" >/dev/null 2>&1 && fail "passed a missing guide"
 
-# A repo named $1 holding every stub as its source holds it.
+# A fixture repo in directory $1 holding every stub as its source holds it.
 stub_repo() {
     local repo="$work/stubs-$1"
     mkdir -p "$repo/.github/workflows" "$repo/.claude"

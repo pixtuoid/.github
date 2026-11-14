@@ -16,7 +16,8 @@ config="$PWD/.github/actions/workflow-lint/zizmor.yml"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-# A repo whose one workflow step is `uses: $2`; tokenless, zizmor runs offline.
+# A repo whose one workflow step is `uses: $2`, audited offline whatever token
+# the shell holds (docs.zizmor.sh/usage/#operating-modes).
 assert_zizmor() {
     local name="$1" uses="$2" expect="$3" repo="$work/zizmor-$1"
     mkdir -p "$repo/.github/workflows" "$repo/.github/actions/local"
@@ -24,7 +25,7 @@ assert_zizmor() {
         >"$repo/.github/actions/local/action.yml"
     printf 'name: t\non: push\npermissions: {}\njobs:\n  t:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: %s\n' \
         "$uses" >"$repo/.github/workflows/t.yml"
-    if (cd "$repo" && env -u GH_TOKEN CONFIG="$config" bash -eo pipefail -c "$zizmor_script") >"$work/$name.out" 2>&1; then
+    if (cd "$repo" && ZIZMOR_OFFLINE=true CONFIG="$config" bash -eo pipefail -c "$zizmor_script") >"$work/$name.out" 2>&1; then
         [[ "$expect" == pass ]] || fail "zizmor passed $name"
     else
         [[ "$expect" == fail ]] || fail "zizmor failed $name: $(cat "$work/$name.out")"

@@ -42,13 +42,10 @@ jobs:
     needs: [workflows]
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    permissions:
-      contents: read
+    permissions: {}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/require-jobs
+      # main's, so a PR that breaks the gate is never judged by its own copy.
+      - uses: pixtuoid/.github/.github/actions/require-jobs@main
         with:
           results: ${{ toJSON(needs) }}
           label: ci-gate
