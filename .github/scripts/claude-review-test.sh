@@ -71,14 +71,20 @@ comment() {
 event() { jq -nc --arg ev "$1" --arg at "$(at "$2")" '{event: $ev, created_at: $at}'; }
 page() { jq -sc . >"$PAGES/$1.$2.json"; }
 
-# Runs the step over the pages a case wrote and sets $dir, $comments,
+# Runs the step for case $1 over the pages it wrote, its outputs in
+# $work/$1.out, and returns the step's status.
+scope_step() {
+    : >"$work/$1.out"
+    PAGES="$PAGES" GITHUB_REPOSITORY=org/repo PR=7 RUNNER_TEMP="$work/$1.tmp" GITHUB_OUTPUT="$work/$1.out" \
+        VERDICTS="$verdicts_jq" COMMENT="$comment_jq" RECHECK="$recheck_jq" BASE_CHANGES="$base_changes_jq" BASE_REF=main \
+        RUN_MINUTES="$run_minutes" bash --noprofile --norc -eo pipefail -c "$script"
+}
+
+# The same, failing the test unless it passes, and sets $dir, $comments,
 # $recheck and $verdicts.
 run_step() {
     local out="$work/$1.out"
-    : >"$out"
-    PAGES="$PAGES" GITHUB_REPOSITORY=org/repo PR=7 RUNNER_TEMP="$work/$1.tmp" GITHUB_OUTPUT="$out" \
-        VERDICTS="$verdicts_jq" COMMENT="$comment_jq" RECHECK="$recheck_jq" BASE_CHANGES="$base_changes_jq" BASE_REF=main \
-        RUN_MINUTES="$run_minutes" bash --noprofile --norc -eo pipefail -c "$script" || fail "$1: the step failed"
+    scope_step "$1" || fail "$1: the step failed"
     dir="$(sed -n 's/^dir=//p' "$out")"
     comments="$(sed -n 's/^comments=//p' "$out")"
     recheck="$(sed -n 's/^recheck=//p' "$out")"
@@ -170,9 +176,7 @@ assert_verdicts auto-retarget "1/C/ 3/C/"
 # it reads the base the PR has left; it fails, never posting a verdict.
 new_case stale-base
 pr_base other
-if PAGES="$PAGES" GITHUB_REPOSITORY=org/repo PR=7 RUNNER_TEMP="$work/stale-base.tmp" GITHUB_OUTPUT="$work/stale-base.out" \
-    VERDICTS="$verdicts_jq" COMMENT="$comment_jq" RECHECK="$recheck_jq" BASE_CHANGES="$base_changes_jq" BASE_REF=main \
-    bash --noprofile --norc -eo pipefail -c "$script" >"$work/stale-base.log" 2>&1; then
+if scope_step stale-base >"$work/stale-base.log" 2>&1; then
     fail "stale-base: a run whose base the PR has left passed"
 fi
 grep -q '^::error::' "$work/stale-base.log" || fail "stale-base: the step crashed: $(cat "$work/stale-base.log")"
