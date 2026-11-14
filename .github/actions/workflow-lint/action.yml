@@ -1,0 +1,50 @@
+name: 'Workflow lint'
+description: "Lints the caller's workflows, composite actions and dependabot.yml: zizmor under the org's policy, actionlint, and shellcheck over every run: block"
+
+runs:
+  using: 'composite'
+  steps:
+    # Not among install-action's tools, actionlint builds below from its
+    # module, which the Go checksum database verifies.
+    - uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2.90.2
+      with:
+        tool: zizmor@1.32.0,shellcheck@0.11.0
+    - name: zizmor
+      shell: bash
+      env:
+        # Tokenless, zizmor skips its online audits.
+        GH_TOKEN: ${{ github.token }}
+        CONFIG: ${{ github.action_path }}/zizmor.yml
+      # The repo root, not just workflows/, so dependabot.yml is audited too.
+      run: zizmor --config "$CONFIG" --strict-collection .
+    - name: actionlint
+      shell: bash
+      # It shellchecks each workflow's run: blocks with the shellcheck above.
+      run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+    - name: shellcheck composite actions
+      shell: bash
+      # actionlint rejects action.yml, so a composite's run: blocks are
+      # shellchecked here.
+      run: |
+        set -euo pipefail
+        shopt -s nullglob
+        work="$(mktemp -d)"
+        trap 'rm -rf "$work"' EXIT
+        status=0
+        checked=0
+        for action in .github/actions/*/action.y*ml; do # GitHub accepts action.yaml too
+          runs="$(yq '[.runs.steps[] | select(has("run"))] | length' "$action")"
+          for ((i = 0; i < runs; i++)); do
+            step=".runs.steps | map(select(has(\"run\"))) | .[$i]"
+            shell="$(yq -r "$step.shell" "$action")"
+            script="$work/$checked.$shell"
+            { echo "#!/usr/bin/env $shell"; yq -r "$step.run" "$action"; } >"$script"
+            if ! shellcheck -s "$shell" "$script"; then
+              echo "::error file=$action::shellcheck: its run step $i"
+              status=1
+            fi
+            checked=$((checked + 1))
+          done
+        done
+        echo "$checked composite run: blocks shellchecked"
+        exit "$status"
