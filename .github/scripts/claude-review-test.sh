@@ -156,8 +156,9 @@ assert_verdicts incomplete-listed "1/C/ 2/I/0123456789ab,0123456789ac.2"
 
 # A manual base change can bring in hunks no earlier review saw, which the
 # replay would count as judged, so only the reviews a job timeout after the
-# newest count: review 40 may come from a run in flight at the change at 20,
-# and counts only from the older change at 2, which sits on the first page.
+# newest change count: review 40 may come from a run in flight at the change
+# at 20, so only 55 counts. The older change at 2, alone on the first events
+# page, would let 40 count, so reading the oldest change or one page fails.
 # GitHub's own retarget after a merged base keeps them.
 new_case base-changed
 { review "$bot" 1 'Blocking: 0'; review "$bot" 40 'Blocking: 0'; review "$bot" 55 'Blocking: 0'; } | page reviews 1
