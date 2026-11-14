@@ -78,7 +78,7 @@ assert_shellcheck yaml-extension fail
 make_actions uses-only a/action.yml "$(composite '    - uses: foo/bar@0123456789abcdef0123456789abcdef01234567
 ')"
 assert_shellcheck uses-only pass
-custom='shell: bash -e {0}' by_path='shell: /bin/bash -e {0}'
+custom='shell: bash -e {0}' by_path='shell: /bin/bash -e {0}' dash='shell: dash {0}'
 # Each with a clean twin, so a fail is shellcheck's finding, never a refused shell.
 make_actions custom-shell a/action.yml "$(composite "${bad_run/shell: bash/$custom}")"
 assert_shellcheck custom-shell fail
@@ -88,6 +88,10 @@ make_actions shell-path a/action.yml "$(composite "${bad_run/shell: bash/$by_pat
 assert_shellcheck shell-path fail
 make_actions shell-path-clean a/action.yml "$(composite "${clean_run/shell: bash/$by_path}")"
 assert_shellcheck shell-path-clean pass
+make_actions dash a/action.yml "$(composite "${bad_run/shell: bash/$dash}")"
+assert_shellcheck dash fail
+make_actions dash-clean a/action.yml "$(composite "${clean_run/shell: bash/$dash}")"
+assert_shellcheck dash-clean pass
 make_actions python a/action.yml "$(composite '    - shell: python
       run: print("ok")
 ')"

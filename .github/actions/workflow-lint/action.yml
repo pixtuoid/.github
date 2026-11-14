@@ -1,5 +1,5 @@
 name: 'Workflow lint'
-description: "Lints the caller's workflows, composite actions and dependabot.yml: zizmor under the org's policy, actionlint with shellcheck over the workflows' run: blocks, and shellcheck over each bash or sh run: block of .github/actions/*"
+description: "Lints the caller's workflows, composite actions and dependabot.yml: zizmor under the org's policy, actionlint with shellcheck over the workflows' run: blocks, and shellcheck over each run: block of .github/actions/* in a dialect it reads"
 
 runs:
   using: 'composite'
@@ -31,10 +31,10 @@ runs:
       run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
     - name: shellcheck composite actions
       shell: bash
-      # actionlint rejects action.yml, so a composite's bash and sh run:
-      # blocks, the composite shells shellcheck reads, are checked here. A `${{ }}`
-      # in one fails, which keeps expressions in `env:`, the pattern GitHub's
-      # secure-use reference gives against script injection.
+      # actionlint rejects action.yml, so a composite's run: blocks in a
+      # dialect shellcheck reads (`shellcheck --help`, --shell) are checked
+      # here. A `${{ }}` in one fails, which keeps expressions in `env:`, the
+      # pattern GitHub's secure-use reference gives against script injection.
       run: |
         set -euo pipefail
         shopt -s nullglob
@@ -50,7 +50,7 @@ runs:
             shell="$(yq -r "$step.shell" "$action")"
             shell="${shell%% *}"
             shell="${shell##*/}"
-            [[ "$shell" == bash || "$shell" == sh ]] || continue
+            case "$shell" in sh | bash | dash | ksh | busybox) ;; *) continue ;; esac
             script="$work/$checked.$shell"
             { echo "#!/usr/bin/env $shell"; yq -r "$step.run" "$action"; } >"$script"
             if ! shellcheck -s "$shell" "$script"; then
