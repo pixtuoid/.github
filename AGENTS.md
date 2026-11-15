@@ -34,10 +34,10 @@ The owner's bar: every change is best practice, the best architecture design and
 ## This repo's rules
 
 - Every other repo runs this one's `main`: its workflows and actions at
-  `@main`, its queue and its plugin as `main` holds them. A change to a
-  published contract ([REVIEW.md](REVIEW.md) lists them) moves every repo's
-  queue, so it lands only with each consumer's update ready to merge after
-  it, and its PR body links them.
+  `@main`, its queue and its plugin as `main` holds them, so a change to a
+  published contract ([REVIEW.md](REVIEW.md) lists them) lands only with
+  each consumer's update ready to merge after it, and its PR body links
+  them.
 - Each action's `test.sh` runs the action's own shell, read from its
   `action.yml`, against fixtures, and `ci.yml` runs every one: a change to an
   action starts with a case there that fails.

@@ -15,7 +15,7 @@ merge_queue:
 # local configuration" (docs.mergify.com/configuration/sharing), so it sets
 # only the keys that differ. A condition list it sets replaces the org's, so
 # it restates the org's beside its own, such as a full tier in
-# merge_conditions (org-rules' stubs step checks both lists).
+# merge_conditions (org-rules' shared-config step checks both lists).
 defaults:
   queue_rule:
     batch_size: 5
