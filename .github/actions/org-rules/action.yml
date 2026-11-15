@@ -1,5 +1,5 @@
 name: 'Org rules'
-description: "Fails unless the repo's agent guide carries org-rules.md verbatim between its org-rules markers, and the repo's config references or agrees with pixtuoid/.github's shared config in each way the shared-config step's checks name"
+description: "Fails unless the repo's agent guide carries org-rules.md verbatim between its org-rules markers, and the repo's config references or agrees with the org's shared config in each way the shared-config step's checks name"
 
 inputs:
   file:
