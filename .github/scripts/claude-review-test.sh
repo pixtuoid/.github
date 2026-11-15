@@ -82,7 +82,7 @@ scope_step() {
 }
 
 # The same, failing the test unless it passes, and sets $dir, $comments,
-# $recheck, $edited and $verdicts.
+# $recheck, $edited, $text_hash and $verdicts.
 run_step() {
     local out="$work/$1.out"
     scope_step "$1" || fail "$1: the step failed"
@@ -90,10 +90,12 @@ run_step() {
     comments="$(sed -n 's/^comments=//p' "$out")"
     recheck="$(sed -n 's/^recheck=//p' "$out")"
     edited="$(sed -n 's/^edited=//p' "$out")"
+    text_hash="$(sed -n 's/^text_hash=//p' "$out")"
     verdicts="$dir/verdicts.jsonl"
     [[ -f "$comments" ]] || fail "$1: no comments file at '$comments'"
     [[ -f "$recheck" ]] || fail "$1: no recheck file at '$recheck'"
     [[ -f "$verdicts" ]] || fail "$1: no verdicts file at '$verdicts'"
+    [[ "$text_hash" =~ ^[0-9a-f]{12}$ ]] || fail "$1: no text hash, got '$text_hash'"
 }
 
 # The finding ids of the recheck file, each with its replies' ids.
@@ -231,46 +233,72 @@ assert_edited() {
     [[ "$got" == "$want" ]] || fail "$name: edited '$got', want '$want'"
 }
 
-# After a complete review at the head, an edit lists only the lines it removed
-# or added, so a deletion alone still leaves one in scope, and a quoted line
-# keeps its own "> ".
+# judged <commit> [first line] [minute]: the bot's summary at <commit> of the
+# case's title and body as they are now, with the `Text:` line step 3 asks for,
+# its hash the scope step's own.
+judged() {
+    run_step "$(basename "$PAGES")-judged"
+    review "$bot" "$1" "$(printf '%s\nText: %s\n\n**Verdict:** fine' "${2:-Blocking: 0}" "$text_hash")" "${3:-$1}"
+}
+# edit <title or body> <text>: the case's event edits that field to <text>.
+edit() {
+    local from
+    if [[ "$1" == title ]]; then from="$title" title="$2"; else from="$body" body="$2"; fi
+    changes="$(jq -c --arg f "$1" --arg from "$from" '(. // {}) + {($f): {from: $from}}' <<<"$changes")"
+}
+
+# After a complete review of the text at the head, an edit lists only the lines
+# it removed or added, so a deletion alone still leaves one in scope, and a
+# quoted line keeps its own "> ".
 new_case edit-body
-review "$bot" 9 'Blocking: 0' | page reviews 1
-changes="$(jq -nc --arg from $'keep\nold\nmid\ngone\n> quote\nkeep too' '{body: {from: $from}}')"
-body=$'keep\nnew\nmid\n> quote\nkeep too\n> added'
+body=$'keep\nold\nmid\ngone\n> quote\nkeep too'
+judged 9 | page reviews 1
+edit body $'keep\nnew\nmid\n> quote\nkeep too\n> added'
 assert_edited edit-body $'body: < old\nbody: > new\nbody: < gone\nbody: > > added'
 new_case edit-title
-review "$bot" 9 'Blocking: 0' | page reviews 1
-changes="$(jq -nc '{title: {from: "old title"}}')"
-assert_edited edit-title $'title: < old title\ntitle: > a title'
+judged 9 | page reviews 1
+edit title 'new title'
+assert_edited edit-title $'title: < a title\ntitle: > new title'
 
 # Any other event, a base-only edit included, keeps the whole title and body,
 # since a push or a new base can leave an old sentence untrue.
 new_case edit-none
-review "$bot" 9 'Blocking: 0' | page reviews 1
+judged 9 | page reviews 1
 assert_edited edit-none none
 new_case edit-base
-review "$bot" 9 'Blocking: 0' | page reviews 1
+judged 9 | page reviews 1
 changes="$(jq -nc --arg sha "$(sha 1)" '{base: {ref: {from: "dev"}, sha: {from: $sha}}}')"
 assert_edited edit-base none
 
-# So does an edit whose newest verdict of the current base is not a complete
-# one at its head: one at an older head is a push's run the edit cancelled, an
-# incomplete one may not have read the text, and one from before a base change
-# judged it against the old base.
+# So does an edit unless the newest verdict of the current base is a complete
+# one at its head naming the text the edit started from: one at an older head
+# is a push's run the edit cancelled, an incomplete one may have left lines
+# unread, one from before a base change judged them against the old base, one
+# naming other text missed an edit whose run, its own or a draft's
+# ready_for_review one, ended without a verdict, and one without the line, or
+# with it garbled, names no text.
 new_case edit-after-push
-review "$bot" 8 'Blocking: 0' | page reviews 1
-changes="$(jq -nc '{title: {from: "old title"}}')"
+judged 8 | page reviews 1
+edit title 'new title'
 assert_edited edit-after-push none
 new_case edit-after-incomplete
-{ review "$bot" 9 'Blocking: 0'; review "$bot" 9 'Blocking: incomplete' 10; } | page reviews 1
-changes="$(jq -nc '{title: {from: "old title"}}')"
+{ judged 9; judged 9 'Blocking: incomplete' 10; } | page reviews 1
+edit title 'new title'
 assert_edited edit-after-incomplete none
 new_case edit-after-base-change
-review "$bot" 9 'Blocking: 0' | page reviews 1
+judged 9 | page reviews 1
 event base_ref_changed 5 | page events 1
-changes="$(jq -nc '{title: {from: "old title"}}')"
+edit title 'new title'
 assert_edited edit-after-base-change none
+new_case edit-after-lost-run
+judged 9 | page reviews 1
+body='an edit no verdict judged'
+edit body 'the next edit'
+assert_edited edit-after-lost-run none
+new_case edit-without-text
+review "$bot" 9 'Blocking: 0' | page reviews 1
+edit title 'new title'
+assert_edited edit-without-text none
 
 # The diff step, over a real repo: base b, the PR's commits p1 and p2, then a
 # merge of the base's next commit b2, resolving their conflict in a; the base
@@ -436,12 +464,16 @@ for agent in ("correctness-reviewer", "design-reviewer", "verifier"):
     assert isinstance(agents[agent]["tools"], list), f"--agents gives {agent} no tools"
 ' || fail "claude_args: --settings and --agents must split into JSON that gives each listed agent its tools"
 
-# Step 3's `Read:` format is what the model writes; read-back holds VERDICTS
-# to a line the diff step wrote, and this holds the prompt to the same format,
-# so a reworded prompt can't leave every unit in scope forever.
+# Step 3's `Read:` and `Text:` lines are what the model writes; read-back and
+# judged hold VERDICTS to lines the steps wrote, and these hold the prompt to
+# the same format, so a reworded prompt can't leave every unit, or the whole
+# title and body, in scope forever.
 # shellcheck disable=SC2016 # the backticks are the prompt's own, not expansions
 [[ "$prompt" == *'an incomplete one ends with a `Read:` line, then the `- <id> <path>:<range>` line of each scope unit'* ]] ||
     fail "prompt: step 3 no longer asks for the \`Read:\` format VERDICTS parses"
+# shellcheck disable=SC2016 # the backticks and the expression are the prompt's own
+[[ "$prompt" == *'its second line is exactly `Text: ${{ steps.scope.outputs.text_hash }}`'* ]] ||
+    fail "prompt: step 3 no longer asks for the \`Text:\` line VERDICTS parses"
 [[ "$(yq -r "$action | .with.classify_inline_comments" "$WORKFLOW_FILE")" == false ]] ||
     fail "classify_inline_comments: buffering would post inline reviews after the summary VERDICT needs as the newest"
 
