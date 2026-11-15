@@ -26,7 +26,9 @@ runs:
     - uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
       with:
         # The action puts each tool's directory on PATH (src/index.ts,
-        # exportMisePath); a shim fails outside the checkout.
+        # exportMisePath). Outside the checkout no mise.toml picks a shim's
+        # version, so it installs one or runs another binary on PATH
+        # (mise.jdx.dev/dev-tools/shims.html).
         add_shims_to_path: false
         # A releases outage fails only a fresh install (pixtuoid/pixtuoid#2193),
         # and the default key omits the tool set (the action's README).

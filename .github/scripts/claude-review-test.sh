@@ -445,8 +445,9 @@ new_case check-rereview-blocks
 { review "$bot" 9 "$clean"; review "$bot" 9 'Blocking: 1' 10; } | page reviews 1
 assert_check check-rereview-blocks fail
 
-# A re-run at the same head finds the earlier run's review there. The start
-# is what the step STARTED names writes, since every repo runs main's copy.
+# A re-run at the same head finds the earlier run's review there. The case
+# runs the real start step, so a renamed output or a format `fromdate` rejects
+# fails here instead of in every repo's review.
 started_from="$(yq -e -r "$check_step | .env.STARTED" "$WORKFLOW_FILE")"
 [[ "$started_from" =~ ^\$\{\{\ steps\.([A-Za-z0-9_-]+)\.outputs\.([A-Za-z0-9_-]+)\ \}\}$ ]] ||
     fail "STARTED: '$started_from' names no step's output"

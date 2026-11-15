@@ -2,7 +2,8 @@
 # (docs.mergify.com/configuration/sharing). The session that opened a PR
 # queues it (org-rules.md, Git), since no condition can confirm a finding.
 merge_queue:
-  # The org's runners take 20 jobs at once (docs.github.com/en/actions/reference/limits).
+  # One pixtuoid push's CI alone needs more than the 20 jobs the org's runners
+  # take at once (docs.github.com/en/actions/reference/limits; pixtuoid's AGENTS.md).
   max_parallel_checks: 1
   # Its checkbox would queue a PR without that session's `@mergifyio queue`.
   queue_controls_comment: false
