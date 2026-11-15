@@ -13,9 +13,9 @@ merge_queue:
 # The rule's values sit here, not in the rule: a repo's own `default` rule
 # replaces this one whole, while "remote default values will apply to the
 # local configuration" (docs.mergify.com/configuration/sharing), so it sets
-# only the keys that differ. A merge_conditions list it sets replaces the
-# org's, so it restates them beside its own, such as a full tier (org-rules'
-# stubs step checks it).
+# only the keys that differ. A condition list it sets replaces the org's, so
+# it restates the org's beside its own, such as a full tier in
+# merge_conditions (org-rules' stubs step checks both lists).
 defaults:
   queue_rule:
     batch_size: 5

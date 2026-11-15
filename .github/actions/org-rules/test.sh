@@ -127,10 +127,15 @@ assert_stubs "$repo" lofi fail "a repo-level .coderabbit.yaml"
 repo="$(stub_repo coderabbit-ts)"
 touch "$repo/.coderabbit.config.ts"
 assert_stubs "$repo" lofi fail "a repo-level .coderabbit.config.ts"
-# A repo's own merge_conditions list replaces the org's whole.
+# A repo's own merge_conditions or queue_conditions list replaces the org's whole.
 repo="$(stub_repo own-conditions)"
-yq -n '.extends = ".github" | .queue_rules = [{"name": "default", "merge_conditions": load(".mergify.yml").defaults.queue_rule.merge_conditions + ["check-success = full-gate"]}]' >"$repo/.mergify.yml"
-assert_stubs "$repo" apple pass "a default rule whose merge_conditions add to the org's"
+yq -n 'load(".mergify.yml").defaults.queue_rule as $org | .extends = ".github"
+    | .queue_rules = [{"name": "default", "queue_conditions": $org.queue_conditions + ["label = ready"],
+        "merge_conditions": $org.merge_conditions + ["check-success = full-gate"]}]' >"$repo/.mergify.yml"
+assert_stubs "$repo" apple pass "a default rule whose conditions add to the org's"
+repo="$(stub_repo dropped-queue-condition)"
+yq -n '.extends = ".github" | .queue_rules = [{"name": "default", "queue_conditions": load(".mergify.yml").defaults.queue_rule.queue_conditions | .[1:]}]' >"$repo/.mergify.yml"
+assert_stubs "$repo" apple fail "a default rule whose queue_conditions drop one of the org's"
 repo="$(stub_repo dropped-condition)"
 yq -n '.extends = ".github" | .queue_rules = [{"name": "default", "merge_conditions": (load(".mergify.yml").defaults.queue_rule.merge_conditions | .[1:]) + ["check-success = full-gate"]}]' >"$repo/.mergify.yml"
 assert_stubs "$repo" apple fail "a default rule whose merge_conditions drop one of the org's"

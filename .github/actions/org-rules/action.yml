@@ -1,5 +1,5 @@
 name: 'Org rules'
-description: "Fails unless the repo's agent guide carries org-rules.md verbatim between its org-rules markers, the repo's stubs of the org's shared config match their source, its own Mergify and release-plz config keep the org queue's conditions, and no repo-level CodeRabbit config overrides the central one"
+description: "Fails unless the repo's agent guide carries org-rules.md verbatim between its org-rules markers, the repo's stubs of the org's shared config match their source, its own Mergify merge_conditions and queue_conditions lists keep the org's entries, its release-plz PR branch prefix is the one the org's queue keeps out, and no repo-level CodeRabbit config overrides the central one"
 
 inputs:
   file:
@@ -54,13 +54,14 @@ runs:
           | (.extraKnownMarketplaces // {}) as $markets | (.enabledPlugins // {}) as $plugins
           | ($want.extraKnownMarketplaces | to_entries | all(.value == $markets[.key]))
             and ($want.enabledPlugins | to_entries | all(.value == $plugins[.key]))
-        # A repo's own merge_conditions list, in a rule or its defaults,
-        # replaces the org's whole: shared defaults apply "unless the same
-        # value already exists in the local configuration"
+        # A repo's own merge_conditions or queue_conditions list, in a rule or
+        # its defaults, replaces the org's whole: shared defaults apply "unless
+        # the same value already exists in the local configuration"
         # (docs.mergify.com/configuration/sharing).
         CONDITIONS: >-
-          all(.defaults.queue_rule.merge_conditions?, .queue_rules[]?.merge_conditions? | values;
-            . as $own | all($org[]; IN($own[])))
+          all(.defaults.queue_rule?, .queue_rules[]? | values | to_entries[]
+              | select(.key == "merge_conditions" or .key == "queue_conditions");
+            .value as $own | all($org[.key][]; IN($own[])))
         # release-plz's default (release-plz.dev/docs/config, "The
         # pr_branch_prefix field").
         RELEASE_PLZ_PREFIX: release-plz-
@@ -82,8 +83,8 @@ runs:
           drift .mergify.yml "needs 'extends: .github', the org's queue, and only the repo's own rules beside it"
         fi
         if [[ -f .mergify.yml ]] && ! yq -o=json . .mergify.yml |
-          jq -e --argjson org "$(yq -o=json '.defaults.queue_rule.merge_conditions' "$SOURCE/.mergify.yml")" "$CONDITIONS" >/dev/null; then
-          drift .mergify.yml "a merge_conditions list here replaces the org's; keep each of pixtuoid/.github's defaults.queue_rule.merge_conditions in it"
+          jq -e --argjson org "$(yq -o=json '.defaults.queue_rule' "$SOURCE/.mergify.yml")" "$CONDITIONS" >/dev/null; then
+          drift .mergify.yml "a merge_conditions or queue_conditions list here replaces the org's; keep each entry pixtuoid/.github's defaults.queue_rule has for that key in it"
         fi
         # The org's queue keeps a release PR out by its branch's prefix, and
         # release-plz reads the first of these (release-plz.dev/docs/config)
