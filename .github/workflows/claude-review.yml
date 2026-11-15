@@ -117,9 +117,10 @@ jobs:
           after="$(awk 'NF { at[++n] = $2 } END { if (n > 1) print at[n - 1] }' <<<"$reviewed")"
           gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/comments?per_page=100" --jq "$COMMENT" >"$dir/comments.jsonl"
           jq -c -s --arg after "$after" "$RECHECK" "$dir/comments.jsonl" >"$dir/recheck.jsonl"
-          # A complete review at this head, the newest of the base, left none
-          # of the title and body unjudged, so only this edit's lines are new,
-          # unless an earlier edit's run ended without a verdict.
+          # A complete review at this head, the newest of the base, judged the
+          # text this edit started from, unless the run that would judge an
+          # earlier edit (its own, or ready_for_review's for one on a draft)
+          # ended without a verdict.
           newest="$(tail -n 1 "$dir/verdicts.jsonl" | jq -r '"\(.commit_id) \(.incomplete)"')"
           if [[ "$newest" == "$HEAD false" ]] && jq -e '.title or .body' <<<"$CHANGES" >/dev/null; then
             # POSIX diff writes a removed line after "< " and an added one
