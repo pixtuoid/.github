@@ -25,14 +25,21 @@ them into one commit.
    `verifier` prompts and models verbatim from the shared workflow CI runs
    (`gh api -H 'Accept: application/vnd.github.raw' repos/pixtuoid/.github/contents/.github/workflows/claude-review.yml`),
    with these overrides:
-   - the scope is the whole `<base>...<head>` diff, read with local read-only
-     tools: `git diff <base>...<head>`, the worktree's files, and
-     `gh pr view <number> --json title,body` or the planned title and body;
+   - the scope is the whole `<base>...<head>` diff on a first run and step 5's
+     on a re-run, read with local read-only tools: `git diff <base>...<head>`,
+     the worktree's files, and `gh pr view <number> --json title,body` or the
+     planned title and body;
    - the rules are step 2's;
    - on an open PR, every review comment, resolved or not, as CI reads them
      (`gh api --paginate repos/{owner}/{repo}/pulls/<number>/comments`), so a
      settled finding never returns and a reply that refutes one is checked as
      CI's recheck is;
+   - beside those comments, every finding an earlier local run on this change
+     kept, with its disposition, from the ledger
+     `$(git rev-parse --git-common-dir)/local-review/<branch>.md`, so one
+     refuted before a PR exists never returns either: every worktree of the
+     clone shares that directory, so it outlives the worktree step 1 adds, and
+     git never tracks what is inside it;
    - a reviewer may fetch the docs a best-practice question needs, which CI's
      can't.
 
@@ -43,7 +50,13 @@ them into one commit.
    such as one a REVIEW.md Do not flag covers or a comment on the item
    documents as deliberate, and answer it as the org rules' Review findings
    say.
-5. **Fold** the accepted findings into one commit.
+5. **Fold** the accepted findings into one commit, and append each kept
+   finding to the ledger with its disposition: the fold's sha or the
+   refutation. Then rerun steps 1–4 at that commit, scoped as the review
+   contract scopes a re-review ("every unit no earlier review has judged, and
+   each one new or changed since"): the hunks of `<base>...<fold>` that
+   `git diff <previous head> <fold>` touches, never the whole diff again.
+   Fold again until a re-run keeps no finding.
 6. **Run each must-run item** REVIEW.md lists that the change touches, on that
    final head, and write its result into the PR body as the item asks, its
    exit code as observed, never through a pipe.
