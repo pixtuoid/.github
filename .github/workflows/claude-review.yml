@@ -34,10 +34,9 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      # A re-run, or an edit's run, at an unchanged head finds the earlier
-      # run's review there, so the verdict step counts only one submitted after
-      # this: the runner's clock in UTC, which the API's timestamps are in
-      # (docs.github.com/en/rest/using-the-rest-api/timezones-and-the-rest-api).
+      # An earlier run's review at the same head must not pass this run, so
+      # the verdict step counts only reviews submitted after this, in UTC as
+      # the API's timestamps are (docs.github.com/en/rest/using-the-rest-api/timezones-and-the-rest-api).
       - name: Note when this run started
         id: start
         run: echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >>"$GITHUB_OUTPUT"
@@ -70,19 +69,14 @@ jobs:
             | @json
           COMMENT: >-
             .[] | {id, in_reply_to_id, created_at, user: .user.login, path, line: (.line // .original_line), body}
-          # A manual base change can bring in hunks no earlier review saw,
-          # and the diff step replays every review against the current base,
-          # so only the reviews a job timeout (RUN_MINUTES) after the newest
-          # change count there; every review still read the comments before
-          # it. GitHub's own
-          # retarget, after the base merged and its hunks are main's, is
-          # another event, and the issue events API documents both, the
-          # timeline neither (docs.github.com/en/rest/using-the-rest-api/issue-event-types).
+          # The diff step replays reviews against the current base, so after a
+          # manual base change only reviews a job timeout later count there.
+          # GitHub's retarget after a merged base is another event; the issue
+          # events API documents both (docs.github.com/en/rest/using-the-rest-api/issue-event-types).
           BASE_CHANGES: >-
             .[] | select(.event == "base_ref_changed") | .created_at
           # The job's timeout-minutes (claude-review-test.sh pins the pair): a
-          # run in flight at a base change judged the old base, and can still
-          # submit until then.
+          # run in flight at a base change can submit until then.
           RUN_MINUTES: 30
           # GitHub stores a reply to a reply as one to its thread's first
           # comment, so in_reply_to_id names the thread.
@@ -95,8 +89,7 @@ jobs:
           dir="$RUNNER_TEMP/review-context"
           mkdir -p "$dir"
           # A re-run keeps its original event (docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs),
-          # so a re-run after a retarget, of a run from before it, would judge
-          # the base the PR left and post its verdict at the same head.
+          # so after a retarget it would judge the old base.
           live_base="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq .base.ref)"
           if [[ "$live_base" != "$BASE_REF" ]]; then
             echo "::error::the PR's base is now $live_base, not this run's $BASE_REF: run the newest review instead"

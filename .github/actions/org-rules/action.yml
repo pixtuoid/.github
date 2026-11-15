@@ -43,27 +43,22 @@ runs:
     - name: shared-config
       shell: bash
       env:
-        # The pixtuoid/.github checkout this action runs from, so each stub has
-        # one source.
+        # The pixtuoid/.github checkout this action runs from.
         SOURCE: ${{ github.action_path }}/../../..
         REPO: ${{ github.repository }}
-        # The source's marketplaces and enabled plugins are the org's; a repo
-        # adds its own beside them.
+        # A repo adds its own marketplaces and plugins beside the org's.
         PLUGINS: >-
           $src[0] as $want
           | (.extraKnownMarketplaces // {}) as $markets | (.enabledPlugins // {}) as $plugins
           | ($want.extraKnownMarketplaces | to_entries | all(.value == $markets[.key]))
             and ($want.enabledPlugins | to_entries | all(.value == $plugins[.key]))
-        # A repo's own merge_conditions or queue_conditions list, in a rule or
-        # its defaults, replaces the org's whole: shared defaults apply "unless
-        # the same value already exists in the local configuration"
-        # (docs.mergify.com/configuration/sharing).
+        # A repo's own condition list, in a rule or its defaults, replaces the
+        # org's whole (docs.mergify.com/configuration/sharing).
         CONDITIONS: >-
           all(.defaults.queue_rule?, .queue_rules[]? | values | to_entries[]
               | select(.key == "merge_conditions" or .key == "queue_conditions");
             .value as $own | all($org[.key][]; IN($own[])))
-        # release-plz's default (release-plz.dev/docs/config, "The
-        # pr_branch_prefix field").
+        # release-plz's default (release-plz.dev/docs/config).
         RELEASE_PLZ_PREFIX: release-plz-
       run: |
         set -euo pipefail
@@ -72,7 +67,7 @@ runs:
           echo "::error file=$1::org-rules: $2"
           status=1
         }
-        # A caller holds only what GitHub needs to start the shared review.
+        # The caller only starts the shared review.
         caller=.github/workflows/review.yml
         if ! diff -u --label "pixtuoid/.github $caller" --label "$caller" "$SOURCE/$caller" "$caller"; then
           drift "$caller" "differs from pixtuoid/.github's; copy that file verbatim"
@@ -88,10 +83,9 @@ runs:
           jq -e --argjson org "$(yq -o=json '.defaults.queue_rule' "$SOURCE/.mergify.yml")" "$CONDITIONS" >/dev/null; then
           drift .mergify.yml "a merge_conditions or queue_conditions list here replaces the org's, so it must keep each entry pixtuoid/.github's defaults.queue_rule lists for that key"
         fi
-        # The org's queue keeps a release PR out by its branch's prefix, and
-        # release-plz reads the first of these (release-plz.dev/docs/config)
-        # unless release-plz/action's `config` input names another, which
-        # this step doesn't read.
+        # The org's queue keeps a release PR out by its branch prefix. These are
+        # release-plz's default paths (release-plz.dev/docs/config); a file its
+        # action's `config` input names isn't read.
         for config in release-plz.toml .release-plz.toml .config/release-plz.toml; do
           [[ -f "$config" ]] || continue
           prefix="$(yq -p toml -o=json -r '.workspace.pr_branch_prefix // strenv(RELEASE_PLZ_PREFIX)' "$config")"

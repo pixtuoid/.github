@@ -111,9 +111,8 @@ new_case() {
 # pr_base <ref>: the PR's live base, as the pulls endpoint serves it.
 pr_base() { jq -nc --arg ref "$1" '{base: {ref: $ref}}' >"$PAGES/pull.1.json"; }
 
-# The verdicts the diff step replays (VERDICTS' a job timeout after the newest
-# base change), oldest first, as `<commit>/<C or I>/<ids>`: the commit's
-# number, complete or incomplete, and the ids listed as judged.
+# The verdicts the diff step replays, oldest first, as `<commit>/<C or I>/<ids>`:
+# the commit's number, complete or incomplete, and the ids listed as judged.
 assert_verdicts() {
     local name="$1" want="$2" got
     run_step "$name"
@@ -154,12 +153,10 @@ new_case incomplete-listed
 } | page reviews 1
 assert_verdicts incomplete-listed "1/C/ 2/I/0123456789ab,0123456789ac.2"
 
-# A manual base change can bring in hunks no earlier review saw, which the
-# replay would count as judged, so only the reviews a job timeout after the
-# newest change count: review 40 may come from a run in flight at the change
-# at 20, so only 55 counts. The older change at 2, alone on the first events
-# page, would let 40 count, so reading the oldest change or one page fails.
-# GitHub's own retarget after a merged base keeps them.
+# After a manual base change only reviews a job timeout later count: 40 may
+# come from a run in flight at the change at 20, so only 55 does. The older
+# change at 2, alone on page 1, catches reading the oldest change or one page.
+# GitHub's own retarget keeps them.
 new_case base-changed
 { review "$bot" 1 'Blocking: 0'; review "$bot" 40 'Blocking: 0'; review "$bot" 55 'Blocking: 0'; } | page reviews 1
 { event labeled 1; event base_ref_changed 2; } | page events 1
@@ -448,10 +445,8 @@ new_case check-rereview-blocks
 { review "$bot" 9 "$clean"; review "$bot" 9 'Blocking: 1' 10; } | page reviews 1
 assert_check check-rereview-blocks fail
 
-# A re-run, or an edit's run, at the same head finds the earlier run's review
-# there, and the action passes when the model posts nothing. The start is
-# what the step STARTED names writes: every repo runs main's copy, so a
-# renamed key or a changed format would reach no review before it lands.
+# A re-run at the same head finds the earlier run's review there. The start
+# is what the step STARTED names writes, since every repo runs main's copy.
 started_from="$(yq -e -r "$check_step | .env.STARTED" "$WORKFLOW_FILE")"
 [[ "$started_from" =~ ^\$\{\{\ steps\.([A-Za-z0-9_-]+)\.outputs\.([A-Za-z0-9_-]+)\ \}\}$ ]] ||
     fail "STARTED: '$started_from' names no step's output"

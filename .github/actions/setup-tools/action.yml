@@ -3,19 +3,16 @@ description: "Installs the given tools of the caller's mise.toml, and only those
 
 inputs:
   tools:
-    # Spaces, not mise's commas, since the cache key below carries the list
-    # and actions/cache refuses a key with a comma (jdx/mise-action@f5be966,
-    # dist/index.js:83048).
+    # The cache key below carries the list, and actions/cache refuses a comma
+    # (jdx/mise-action@f5be966, dist/index.js:83048).
     description: 'Space-separated mise.toml [tools] keys'
     required: true
 
 runs:
   using: 'composite'
   steps:
-    # mise then uses only these tools, in this step and the job's later ones
-    # (mise.jdx.dev/configuration/settings.html, enable_tools), so an unlisted
-    # one is never resolved and a versions-host outage cannot burn the job
-    # token's API budget.
+    # mise then resolves only these tools, here and in later steps
+    # (mise.jdx.dev/configuration/settings.html, enable_tools).
     - shell: bash
       env:
         TOOLS: ${{ inputs.tools }}
@@ -28,19 +25,14 @@ runs:
         echo "MISE_ENABLE_TOOLS=${TOOLS// /,}" >>"$GITHUB_ENV"
     - uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
       with:
-        # The action puts each tool's own directory on PATH (src/index.ts,
-        # exportMisePath), and a shim errors outside the checkout, where no
-        # mise.toml names its version.
+        # The action puts each tool's directory on PATH (src/index.ts,
+        # exportMisePath); a shim fails outside the checkout.
         add_shims_to_path: false
-        # A GitHub Releases outage fails a fresh install, never a cache hit
-        # (pixtuoid/pixtuoid#2193). The default key leaves out
-        # MISE_ENABLE_TOOLS (the action's README, "Install a subset of
-        # configured tools").
+        # A releases outage fails only a fresh install (pixtuoid/pixtuoid#2193),
+        # and the default key omits the tool set (the action's README).
         cache_key: '{{default}}-${{ inputs.tools }}'
-        # Every ref restores main's copy (docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching),
-        # so a save from another ref only evicts main's entries.
+        # Every ref restores main's cache (docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching),
+        # so another ref's save only evicts it.
         cache_save: ${{ github.ref == 'refs/heads/main' }}
-        # A hit still resolves each `latest` and downloads any newer release
-        # (pixtuoid/pixtuoid#2193), so a daily rebuild keeps those downloads
-        # to a day's releases.
+        # A hit still downloads every newer `latest` (pixtuoid/pixtuoid#2193).
         cache_max_age_days: 1

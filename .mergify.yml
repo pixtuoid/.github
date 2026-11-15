@@ -1,67 +1,53 @@
-# The org's queue: every other repo's .mergify.yml extends this one
-# (docs.mergify.com/configuration/sharing). A PR enters by `@mergifyio queue`
-# from the session that opened it (org-rules.md, Git), since confirming a
-# finding is a judgement no condition can make.
+# Every other repo's .mergify.yml extends this one
+# (docs.mergify.com/configuration/sharing). The session that opened a PR
+# queues it (org-rules.md, Git), since no condition can confirm a finding.
 merge_queue:
-  # Each check is a CI run on the org's shared runners, which take 20 jobs at
-  # once on its plan (docs.github.com/en/actions/reference/limits).
+  # The org's runners take 20 jobs at once (docs.github.com/en/actions/reference/limits).
   max_parallel_checks: 1
-  # Its checkbox queues a PR in place of `@mergifyio queue`
-  # (docs.mergify.com/configuration/file-format), and a tick confirms no finding.
+  # Its checkbox would queue a PR without that session's `@mergifyio queue`.
   queue_controls_comment: false
 
-# The rule's values sit here, not in the rule: a repo's own `default` rule
-# replaces this one whole, while "remote default values will apply to the
-# local configuration" (docs.mergify.com/configuration/sharing), so it sets
-# only the keys that differ. A queue_conditions or merge_conditions list it
-# sets replaces the org's, so org-rules' shared-config step checks that it
-# restates the org's entries beside its own, such as a full tier.
+# A repo's own `default` rule replaces this one whole, while these defaults
+# still apply to it (docs.mergify.com/configuration/sharing); a condition
+# list it sets replaces the org's, so it restates the org's entries.
 defaults:
   queue_rule:
     batch_size: 5
-    # A batch takes only the PRs already queued (docs.mergify.com/merge-queue/batches),
-    # and PRs are queued one by one after review; the 30-second default
-    # batches one.
+    # A batch takes only PRs already queued (docs.mergify.com/merge-queue/batches),
+    # and reviewed PRs are queued one at a time.
     batch_max_wait_time: 10 min
     merge_method: squash
-    # main takes the PR's title and body, never a branch's commit messages;
-    # pr-body overrides the repo's squash setting (docs.mergify.com/workflow/actions/merge).
+    # main takes the PR's title and body (docs.mergify.com/workflow/actions/merge).
     commit_message_format:
       title: pr-title
       body: pr-body
-    # `auto`, the 95th percentile of the queue's recent runs
-    # (docs.mergify.com/configuration/file-format), dequeued pixtuoid#1266 at
-    # 24m44s while its checks waited on backlogged runners, which took up to
-    # 48 minutes that week (pixtuoid#1271); each dequeue costs a CI rerun.
+    # `auto` dequeued pixtuoid#1266 at 24m44s while its checks waited on
+    # backlogged runners (pixtuoid#1271).
     checks_timeout: 60 min
-    # The review runs on the PR, never on the queue's draft PR, where an
-    # injected required review check would never pass: "the merge conditions
-    # for checks are evaluated against the temporary pull request"
-    # (docs.mergify.com/merge-queue/rules).
+    # The review runs on the PR, never on the queue's draft, where merge
+    # conditions are evaluated (docs.mergify.com/merge-queue/rules).
     branch_protection_injection_mode: none
-    # `none` requires an account that satisfies the protections itself
+    # `none` needs an account that satisfies the protections
     # (docs.mergify.com/configuration/file-format).
     merge_bot_account: IvanWng97
-    # The PR itself: the protections' required checks and thread resolution,
-    # restated since nothing is injected.
+    # The protections' required checks and thread resolution, restated since
+    # none is injected.
     queue_conditions:
-      # A stacked PR waits until its base merges and that branch is deleted,
-      # when GitHub retargets it (docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-and-deleting-branches-within-your-repository).
+      # GitHub retargets a stacked PR once its merged base's branch is deleted
+      # (docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-and-deleting-branches-within-your-repository).
       - base = main
       - -draft
-      # A release PR merges by hand, its repo's release step.
+      # A release PR merges by hand.
       - -head ~= ^release-plz-
       - check-success = ci-gate
       - check-success = GitGuardian Security Checks
-      # The review skips a fork's or a bot's PR (claude-review.yml), which a
-      # human reviews.
+      # The review skips a fork's or a bot's PR, which a human reviews.
       - or:
           - check-success = claude-review / claude-review
           - check-skipped = claude-review / claude-review
       - "#review-threads-unresolved = 0"
-    # The queue's draft PR, or the PR itself on a direct merge: "a pull request
-    # that does not satisfy them is not merged, directly or otherwise"
-    # (docs.mergify.com/merge-queue/direct-merge).
+    # "a pull request that does not satisfy them is not merged, directly or
+    # otherwise" (docs.mergify.com/merge-queue/direct-merge).
     merge_conditions:
       - check-success = ci-gate
 

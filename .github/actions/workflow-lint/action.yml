@@ -4,37 +4,30 @@ description: "Lints the caller's workflows, composite actions and dependabot.yml
 runs:
   using: 'composite'
   steps:
-    # A bare tool name takes the version this pin's manifests name, so a
-    # Dependabot bump of the pin moves both (the action's README, "Security
-    # on installation from GitHub Releases"). actionlint is not among its tools
-    # (TOOLS.md), so it builds below from its module, which the Go checksum
-    # database verifies (go.dev/ref/mod#checksum-database).
+    # The pin names each tool's version, so a Dependabot bump moves both (the
+    # action's README). actionlint isn't among its tools (TOOLS.md); `go run`
+    # below is checked by the Go checksum database (go.dev/ref/mod#checksum-database).
     - uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2.90.2
       with:
         tool: zizmor,shellcheck
     - name: zizmor
       shell: bash
       env:
-        # Tokenless, zizmor runs offline and skips its online audits
-        # (docs.zizmor.sh/usage/#operating-modes).
+        # Tokenless, zizmor skips its online audits (docs.zizmor.sh/usage/#operating-modes).
         GH_TOKEN: ${{ github.token }}
         CONFIG: ${{ github.action_path }}/zizmor.yml
-      # The repo root, not just workflows/, so dependabot.yml is audited too.
+      # The root, so dependabot.yml is audited too.
       run: zizmor --config "$CONFIG" --strict-collection .
     - name: actionlint
       shell: bash
-      # It shellchecks each workflow's run: blocks with the shellcheck above.
-      # Dependabot keeps "references to actions" current
-      # (docs.github.com/en/code-security/dependabot/working-with-dependabot/keeping-your-actions-up-to-date-with-dependabot),
-      # never a `go run` argument, so this one moves by hand, with the bump
-      # rhysd/actionlint#711 needs (zizmor.yml).
+      # Its shellcheck is the one above. Dependabot never bumps a `go run`
+      # argument (docs.github.com/en/code-security/dependabot/working-with-dependabot/keeping-your-actions-up-to-date-with-dependabot),
+      # so this moves by hand.
       run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
     - name: shellcheck composite actions
       shell: bash
-      # actionlint rejects action.yml, so a composite's run: blocks are
-      # shellchecked here. A `${{ }}` where the shell would expand it fails,
-      # which keeps expressions in `env:`, the pattern GitHub's secure-use
-      # reference gives against script injection.
+      # actionlint rejects action.yml. A `${{ }}` the shell would expand fails,
+      # keeping expressions in `env:` (GitHub's secure-use reference).
       run: |
         set -euo pipefail
         shopt -s nullglob
