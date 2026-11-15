@@ -36,15 +36,18 @@ them into one commit.
      CI's recheck is;
    - beside those comments, every finding an earlier local run on this change
      kept, with its disposition, from the ledger
-     `$(git rev-parse --git-common-dir)/local-review/<branch>.md`, so one
-     refuted before a PR exists never returns either: every worktree of the
-     clone shares that directory, so it outlives the worktree step 1 adds, and
-     git never tracks what is inside it;
+     `$(git rev-parse --git-common-dir)/local-review/<branch>.md`: one refuted
+     there never returns, and one marked fixed is a recheck, given to its
+     verifier with the fold's sha as CI's is given its replies, so a fold that
+     left the defect can't end step 5's loop. Every worktree of the clone
+     shares that directory, so it outlives the worktree step 1 adds, and git
+     never tracks what is inside it;
    - a reviewer may fetch the docs a best-practice question needs, which CI's
      can't.
 
    Spawn the two reviewers in parallel, then one verifier per candidate. A
-   one-word or placeholder return is no review: re-run that reviewer alone.
+   one-word, placeholder or partial return is no review of what it left out:
+   re-run that reviewer alone on the units it did not judge whole.
 4. **Verify** every kept finding's premise yourself before fixing it: read the
    comments on the item it names first. Refute one whose premise fails,
    such as one a REVIEW.md Do not flag covers or a comment on the item
