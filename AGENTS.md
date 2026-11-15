@@ -5,7 +5,11 @@ it instead of keeping a copy: the review (`claude-review.yml`, which each
 repo's `review.yml` starts), the composite actions under `.github/actions/`,
 the Mergify queue (`.mergify.yml`, which each repo's extends), the Claude Code
 plugin marketplace (`.claude-plugin/`, `plugins/`), and the org's profile and
-community health files.
+community health files. The marketplace and its plugin are `pixtuoid-dev`
+because `pixtuoid@pixtuoid` is the pixtuoid product's own hooks plugin
+(pixtuoid/pixtuoid's `crates/pixtuoid/src/install/host_plugin.rs`, `NAME`),
+and a user registers one marketplace per name
+(code.claude.com/docs/en/plugins/marketplace-reference).
 
 <!-- org-rules:begin -->
 ## Org rules
@@ -37,4 +41,4 @@ The owner's bar: every change is best practice, the best architecture design and
 - Each action's `test.sh` runs the action's own shell, read from its
   `action.yml`, against fixtures, and `ci.yml` runs every one: a change to an
   action starts with a case there that fails.
-- A PR opens once `/pixtuoid:local-review` has run on its head.
+- A PR opens once `/pixtuoid-dev:local-review` has run on its head.

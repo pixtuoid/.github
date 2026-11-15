@@ -1,5 +1,5 @@
 {
-  "name": "pixtuoid",
+  "name": "pixtuoid-dev",
   "description": "The pixtuoid org's shared agent skills",
   "owner": {
     "name": "pixtuoid",
@@ -7,8 +7,8 @@
   },
   "plugins": [
     {
-      "name": "pixtuoid",
-      "source": "./plugins/pixtuoid"
+      "name": "pixtuoid-dev",
+      "source": "./plugins/pixtuoid-dev"
     }
   ]
 }
