@@ -210,7 +210,7 @@ jobs:
           whole="$DIR/whole.diff"
           python3 -I -c "$UNITS" "$BASE_REF" "$HEAD" "$DIR/verdicts.jsonl" "$whole" >"$DIR/units.md"
           { echo "units=$DIR/units.md"; echo "whole=$whole"; } >>"$GITHUB_OUTPUT"
-      - uses: anthropics/claude-code-action@d535f5172dec02b204866b393d6b20b9b2aaf98d # v1.0.266
+      - uses: anthropics/claude-code-action@61a9c274fa7110a66dfafc1bbbced03833eb25fe # v1.0.269
         env:
           # Leaves only the --agents below to spawn: a built-in one holds every
           # tool, Agent included (code.claude.com/docs/en/sub-agents).
