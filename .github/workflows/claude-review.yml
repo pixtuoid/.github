@@ -97,8 +97,9 @@ jobs:
           mkdir -p "$dir"
           # A re-run keeps its original event (docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs),
           # so the PR is read live: after a retarget it would judge the old
-          # base, and after an edit list stale lines.
-          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq '{base: .base.ref, title, body}' >"$dir/pr.json"
+          # base, and after an edit list stale lines. An empty body reads null
+          # there, while `changes` types `from` as a string.
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq '{base: .base.ref, title, body: (.body // "")}' >"$dir/pr.json"
           live_base="$(jq -r .base "$dir/pr.json")"
           if [[ "$live_base" != "$BASE_REF" ]]; then
             echo "::error::the PR's base is now $live_base, not this run's $BASE_REF: run the newest review instead"
@@ -134,10 +135,12 @@ jobs:
           newest="$(tail -n 1 "$dir/verdicts.jsonl" | jq -r '"\(.commit_id) \(.incomplete) \(.text_hash)"')"
           if jq -e '.title or .body' <<<"$CHANGES" >/dev/null && [[ "$newest" == "$HEAD false $(text_hash "$CHANGES")" ]]; then
             # POSIX diff writes a removed line after "< " and an added one
-            # after "> " (pubs.opengroup.org/onlinepubs/9799919799/utilities/diff.html).
+            # after "> " (pubs.opengroup.org/onlinepubs/9799919799/utilities/diff.html);
+            # an empty text has no line, where jq -r would print one.
             changed() {
               jq -e --arg f "$1" '.[$f]' <<<"$CHANGES" >/dev/null || return 0
-              { diff <(jq -r --arg f "$1" '.[$f].from' <<<"$CHANGES") <(jq -r --arg f "$1" '.[$f]' "$dir/pr.json") || (($? == 1)); } |
+              { diff <(jq -r --arg f "$1" '.[$f].from | select(. != "")' <<<"$CHANGES") \
+                  <(jq -r --arg f "$1" '.[$f] | select(. != "")' "$dir/pr.json") || (($? == 1)); } |
                 sed -n "s/^\([<>]\) /$1: \1 /p"
             }
             { changed title; changed body; } >"$dir/edited.md"

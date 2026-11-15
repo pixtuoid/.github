@@ -72,10 +72,12 @@ event() { jq -nc --arg ev "$1" --arg at "$(at "$2")" '{event: $ev, created_at: $
 page() { jq -sc . >"$PAGES/$1.$2.json"; }
 
 # Runs the step for case $1 over the pages it wrote and the PR as it is live,
-# its outputs in $work/$1.out, and returns the step's status.
+# an empty body served as null as the API does (rust-lang/rust#165855), its
+# outputs in $work/$1.out, and returns the step's status.
 scope_step() {
     : >"$work/$1.out"
-    jq -nc --arg ref "$live_base" --arg title "$title" --arg body "$body" '{base: {ref: $ref}, $title, $body}' >"$PAGES/pull.1.json"
+    jq -nc --arg ref "$live_base" --arg title "$title" --arg body "$body" \
+        '{base: {ref: $ref}, $title, body: (if $body == "" then null else $body end)}' >"$PAGES/pull.1.json"
     PAGES="$PAGES" GITHUB_REPOSITORY=org/repo PR=7 RUNNER_TEMP="$work/$1.tmp" GITHUB_OUTPUT="$work/$1.out" \
         VERDICTS="$verdicts_jq" COMMENT="$comment_jq" RECHECK="$recheck_jq" BASE_CHANGES="$base_changes_jq" BASE_REF=main \
         RUN_MINUTES="$run_minutes" HEAD="$(sha 9)" CHANGES="$changes" bash --noprofile --norc -eo pipefail -c "$script"
@@ -256,6 +258,17 @@ new_case edit-title
 judged 9 | page reviews 1
 edit title 'new title'
 assert_edited edit-title $'title: < a title\ntitle: > new title'
+# An empty body has no line, so clearing one lists only what it removed, and
+# filling one after a review of none lists only what it added.
+new_case edit-clear
+judged 9 | page reviews 1
+edit body ''
+assert_edited edit-clear $'body: < a body\nbody: < of two lines'
+new_case edit-fill
+body=''
+judged 9 | page reviews 1
+edit body 'a first body'
+assert_edited edit-fill 'body: > a first body'
 
 # Any other event, a base-only edit included, keeps the whole title and body,
 # since a push or a new base can leave an old sentence untrue.
