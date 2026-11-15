@@ -86,13 +86,15 @@ runs:
           drift .mergify.yml "a merge_conditions list here replaces the org's; keep each of pixtuoid/.github's defaults.queue_rule.merge_conditions in it"
         fi
         # The org's queue keeps a release PR out by its branch's prefix, and
-        # release-plz reads its config from one of these (release-plz.dev/docs/config).
+        # release-plz reads the first of these (release-plz.dev/docs/config)
+        # unless release-plz/action's `config` input names another, which
+        # this step doesn't read.
         for config in release-plz.toml .release-plz.toml .config/release-plz.toml; do
           [[ -f "$config" ]] || continue
           prefix="$(yq -p toml -o=json -r '.workspace.pr_branch_prefix // strenv(RELEASE_PLZ_PREFIX)' "$config")"
-          queued="$(yq -r '.defaults.queue_rule.queue_conditions[] | select(tag == "!!str" and test("^-head ~= \\^")) | sub("^-head ~= \\^"; "")' "$SOURCE/.mergify.yml")"
-          if [[ "$prefix" != "$queued" ]]; then
-            drift "$config" "its PR branch prefix '$prefix' is not '$queued', the one pixtuoid/.github's .mergify.yml keeps out of the queue"
+          kept_out="$(yq -r '.defaults.queue_rule.queue_conditions[] | select(tag == "!!str" and test("^-head ~= \\^")) | sub("^-head ~= \\^"; "")' "$SOURCE/.mergify.yml")"
+          if [[ "$prefix" != "$kept_out" ]]; then
+            drift "$config" "its PR branch prefix '$prefix' is not '$kept_out', the one pixtuoid/.github's .mergify.yml keeps out of the queue"
           fi
         done
         if ! jq -e --slurpfile src "$SOURCE/.claude/settings.json" "$SHARED" .claude/settings.json >/dev/null; then
