@@ -1,0 +1,56 @@
+# Every other repo's .mergify.yml extends this one
+# (docs.mergify.com/configuration/sharing). The session that opened a PR
+# queues it (org-rules.md, Git), since no condition can confirm a finding.
+merge_queue:
+  # One pixtuoid push's CI alone needs more than the 20 jobs the org's runners
+  # take at once (docs.github.com/en/actions/reference/limits; pixtuoid's AGENTS.md).
+  max_parallel_checks: 1
+  # Its checkbox would queue a PR without that session's `@mergifyio queue`.
+  queue_controls_comment: false
+
+# A repo's own `default` rule replaces this one whole, while these defaults
+# still apply to it (docs.mergify.com/configuration/sharing); a condition
+# list it sets replaces the org's, so it restates the org's entries.
+defaults:
+  queue_rule:
+    batch_size: 5
+    # A batch takes only PRs already queued (docs.mergify.com/merge-queue/batches),
+    # and reviewed PRs are queued one at a time.
+    batch_max_wait_time: 10 min
+    merge_method: squash
+    # main takes the PR's title and body (docs.mergify.com/workflow/actions/merge).
+    commit_message_format:
+      title: pr-title
+      body: pr-body
+    # `auto` dequeued pixtuoid#1266 at 24m44s while its checks waited on
+    # backlogged runners (pixtuoid#1271).
+    checks_timeout: 60 min
+    # The review runs on the PR, never on the queue's draft, where merge
+    # conditions are evaluated (docs.mergify.com/merge-queue/rules).
+    branch_protection_injection_mode: none
+    # `none` needs an account that satisfies the protections
+    # (docs.mergify.com/configuration/file-format).
+    merge_bot_account: IvanWng97
+    # The protections' required checks and thread resolution, restated since
+    # none is injected.
+    queue_conditions:
+      # GitHub retargets a stacked PR once its merged base's branch is deleted
+      # (docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-and-deleting-branches-within-your-repository).
+      - base = main
+      - -draft
+      # A release PR merges by hand.
+      - -head ~= ^release-plz-
+      - check-success = ci-gate
+      - check-success = GitGuardian Security Checks
+      # The review skips a fork's or a bot's PR, which a human reviews.
+      - or:
+          - check-success = claude-review / claude-review
+          - check-skipped = claude-review / claude-review
+      - "#review-threads-unresolved = 0"
+    # "a pull request that does not satisfy them is not merged, directly or
+    # otherwise" (docs.mergify.com/merge-queue/direct-merge).
+    merge_conditions:
+      - check-success = ci-gate
+
+queue_rules:
+  - name: default

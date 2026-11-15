@@ -14,6 +14,10 @@ script="$(yq -e -r "$step | .run" "$WORKFLOW_FILE")"
 verdicts_jq="$(yq -e -r "$step | .env.VERDICTS" "$WORKFLOW_FILE")"
 comment_jq="$(yq -e -r "$step | .env.COMMENT" "$WORKFLOW_FILE")"
 recheck_jq="$(yq -e -r "$step | .env.RECHECK" "$WORKFLOW_FILE")"
+base_changes_jq="$(yq -e -r "$step | .env.BASE_CHANGES" "$WORKFLOW_FILE")"
+run_minutes="$(yq -e -r "$step | .env.RUN_MINUTES" "$WORKFLOW_FILE")"
+[[ "$run_minutes" == "$(yq -e -r '.jobs.claude-review.timeout-minutes' "$WORKFLOW_FILE")" ]] ||
+    fail "the scope step's RUN_MINUTES is not the job's timeout-minutes"
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -37,6 +41,8 @@ gh() {
     case "$path" in
     "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews?per_page=100") kind=reviews ;;
     "repos/$GITHUB_REPOSITORY/pulls/$PR/comments?per_page=100") kind=comments ;;
+    "repos/$GITHUB_REPOSITORY/issues/$PR/events?per_page=100") kind=events ;;
+    "repos/$GITHUB_REPOSITORY/pulls/$PR") kind=pull ;;
     *) echo "gh stub: unexpected path $path" >&2; return 1 ;;
     esac
     local page=1
@@ -61,16 +67,24 @@ comment() {
     jq -nc --argjson id "$1" --arg body "$2" --argjson to "${3:-null}" --arg at "$(at "${4:-$1}")" \
         '{id: $id, in_reply_to_id: $to, created_at: $at, user: {login: "github-actions[bot]"}, path: "a.rs", line: null, original_line: 7, body: $body, diff_hunk: "@@"}'
 }
+# event <type> <minute created>, an issue event of the PR.
+event() { jq -nc --arg ev "$1" --arg at "$(at "$2")" '{event: $ev, created_at: $at}'; }
 page() { jq -sc . >"$PAGES/$1.$2.json"; }
 
-# Runs the step over the pages a case wrote and sets $dir, $comments,
+# Runs the step for case $1 over the pages it wrote, its outputs in
+# $work/$1.out, and returns the step's status.
+scope_step() {
+    : >"$work/$1.out"
+    PAGES="$PAGES" GITHUB_REPOSITORY=org/repo PR=7 RUNNER_TEMP="$work/$1.tmp" GITHUB_OUTPUT="$work/$1.out" \
+        VERDICTS="$verdicts_jq" COMMENT="$comment_jq" RECHECK="$recheck_jq" BASE_CHANGES="$base_changes_jq" BASE_REF=main \
+        RUN_MINUTES="$run_minutes" bash --noprofile --norc -eo pipefail -c "$script"
+}
+
+# The same, failing the test unless it passes, and sets $dir, $comments,
 # $recheck and $verdicts.
 run_step() {
     local out="$work/$1.out"
-    : >"$out"
-    PAGES="$PAGES" GITHUB_REPOSITORY=org/repo PR=7 RUNNER_TEMP="$work/$1.tmp" GITHUB_OUTPUT="$out" \
-        VERDICTS="$verdicts_jq" COMMENT="$comment_jq" RECHECK="$recheck_jq" \
-        bash --noprofile --norc -eo pipefail -c "$script" || fail "$1: the step failed"
+    scope_step "$1" || fail "$1: the step failed"
     dir="$(sed -n 's/^dir=//p' "$out")"
     comments="$(sed -n 's/^comments=//p' "$out")"
     recheck="$(sed -n 's/^recheck=//p' "$out")"
@@ -91,11 +105,14 @@ assert_recheck() {
 new_case() {
     PAGES="$work/$1"
     mkdir -p "$PAGES"
-    for kind in reviews comments; do printf '' | page "$kind" 1; done
+    for kind in reviews comments events; do printf '' | page "$kind" 1; done
+    pr_base main
 }
+# pr_base <ref>: the PR's live base, as the pulls endpoint serves it.
+pr_base() { jq -nc --arg ref "$1" '{base: {ref: $ref}}' >"$PAGES/pull.1.json"; }
 
-# The verdicts VERDICTS kept, oldest first, as `<commit>/<C or I>/<ids>`: the
-# commit's number, complete or incomplete, and the ids listed as judged.
+# The verdicts the diff step replays, oldest first, as `<commit>/<C or I>/<ids>`:
+# the commit's number, complete or incomplete, and the ids listed as judged.
 assert_verdicts() {
     local name="$1" want="$2" got
     run_step "$name"
@@ -135,6 +152,32 @@ new_case incomplete-listed
     review "$bot" 2 $'Blocking: incomplete\n\nRead:\n- 0123456789ab src/x.rs:+40,3\n \t\n- 0123456789ac.2 b.rs:+1,1,+9,1\n  - 0123456789ad a.rs:+12,1\n- a.rs: fn foo\nthen prose\n'
 } | page reviews 1
 assert_verdicts incomplete-listed "1/C/ 2/I/0123456789ab,0123456789ac.2"
+
+# After a manual base change only reviews a job timeout later count: 40 may
+# come from a run in flight at the change at 20, so only 55 does. The older
+# change at 2, alone on page 1, catches reading the oldest change or one page.
+# GitHub's own retarget keeps them.
+new_case base-changed
+{ review "$bot" 1 'Blocking: 0'; review "$bot" 40 'Blocking: 0'; review "$bot" 55 'Blocking: 0'; } | page reviews 1
+{ event labeled 1; event base_ref_changed 2; } | page events 1
+event base_ref_changed 20 | page events 2
+{ comment 2 'finding'; comment 6 'fixed' 2 2; } | page comments 1
+assert_verdicts base-changed "55/C/"
+# The replay drops them, the recheck window does not: review 40 read the reply.
+assert_recheck base-changed '[]'
+new_case auto-retarget
+{ review "$bot" 1 'Blocking: 0'; review "$bot" 3 'Blocking: 0'; } | page reviews 1
+event automatic_base_change_succeeded 2 | page events 1
+assert_verdicts auto-retarget "1/C/ 3/C/"
+
+# A re-run keeps its event, so a re-run after a retarget of a run from before
+# it reads the base the PR has left; it fails, never posting a verdict.
+new_case stale-base
+pr_base other
+if scope_step stale-base >"$work/stale-base.log" 2>&1; then
+    fail "stale-base: a run whose base the PR has left passed"
+fi
+grep -q '^::error::' "$work/stale-base.log" || fail "stale-base: the step crashed: $(cat "$work/stale-base.log")"
 
 # The MCP tool stops at 100 comments, the oldest, so the newest round's
 # findings were the ones a re-review could not see.
@@ -253,6 +296,11 @@ a_id="$(ids_of whole a)" p2_id="$(ids_of whole p2)"
 } | run_diff reruns "$merge"
 [[ "$(paths reruns)" == ".gitattributes " ]] || fail "diff reruns: want only .gitattributes left, got: $(paths reruns)"
 
+# An edit of the title or body re-runs the review at the same head, and after
+# a complete review there no unit is left, so it reads the title and body.
+verdict "$merge" false | run_diff edited "$merge"
+[[ -z "$(paths edited)" ]] || fail "diff edited: a complete review at the head left units in scope: $(paths edited)"
+
 # The format step 3 asks for, a line the step wrote, parses back to its id.
 new_case read-back
 review "$bot" 1 "$(printf 'Blocking: incomplete\n\nRead:\n%s' "$(grep ' p1:' "$(units_of whole)")")" | page reviews 1
@@ -339,14 +387,15 @@ for agent in ("correctness-reviewer", "design-reviewer", "verifier"):
 [[ "$(yq -r "$action | .with.classify_inline_comments" "$WORKFLOW_FILE")" == false ]] ||
     fail "classify_inline_comments: buffering would post inline reviews after the summary VERDICT needs as the newest"
 
-# The step that sets the required check, run over a case's reviews at head 9.
+# The step that sets the required check, run over a case's reviews at head 9
+# for a job started at $3, minute 0 unless given.
 # A crash fails the check too, so a fail counts only with the step's ::error::.
 check_step='.jobs.claude-review.steps[] | select(.env.VERDICT != null)'
 check_script="$(yq -e -r "$check_step | .run" "$WORKFLOW_FILE")"
 check_jq="$(yq -e -r "$check_step | .env.VERDICT" "$WORKFLOW_FILE")"
 assert_check() {
     local name="$1" want="$2" got=pass
-    PAGES="$PAGES" GITHUB_REPOSITORY=org/repo PR=7 HEAD_SHA="$(sha 9)" VERDICT="$check_jq" \
+    PAGES="$PAGES" GITHUB_REPOSITORY=org/repo PR=7 HEAD_SHA="$(sha 9)" STARTED="${3-$(at 0)}" VERDICT="$check_jq" \
         bash --noprofile --norc -eo pipefail -c "$check_script" >"$work/$name.out" 2>"$work/$name.err" || got=fail
     [[ "$got" == pass ]] || grep -q '^::error::' "$work/$name.out" || fail "check $name: the step crashed: $(cat "$work/$name.err")"
     [[ "$got" == "$want" ]] || fail "check $name: the check would $got, want $want"
@@ -395,3 +444,16 @@ assert_check check-rereview-clean pass
 new_case check-rereview-blocks
 { review "$bot" 9 "$clean"; review "$bot" 9 'Blocking: 1' 10; } | page reviews 1
 assert_check check-rereview-blocks fail
+
+# A re-run at the same head finds the earlier run's review there. The case
+# runs the real start step, so a renamed output or a format `fromdate` rejects
+# fails here instead of in every repo's review.
+started_from="$(yq -e -r "$check_step | .env.STARTED" "$WORKFLOW_FILE")"
+[[ "$started_from" =~ ^\$\{\{\ steps\.([A-Za-z0-9_-]+)\.outputs\.([A-Za-z0-9_-]+)\ \}\}$ ]] ||
+    fail "STARTED: '$started_from' names no step's output"
+start_key="${BASH_REMATCH[2]}"
+start_script="$(yq -e -r ".jobs.claude-review.steps[] | select(.id == \"${BASH_REMATCH[1]}\") | .run" "$WORKFLOW_FILE")"
+GITHUB_OUTPUT="$work/start.out" bash --noprofile --norc -eo pipefail -c "$start_script" || fail "start: the step failed"
+new_case check-rerun-silent
+review "$bot" 9 "$clean" | page reviews 1
+assert_check check-rerun-silent fail "$(sed -n "s/^$start_key=//p" "$work/start.out")"

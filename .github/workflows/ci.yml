@@ -20,22 +20,32 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
-        with:
-          tool: zizmor@1.30.0
-      # The repo root, not just workflows/, so dependabot.yml is audited too.
-      - run: zizmor --config .github/zizmor.yml .
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - uses: ./.github/actions/org-rules
+      - uses: ./.github/actions/workflow-lint
+      # After workflow-lint, whose tools its test runs.
       - run: |
-          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
-          "$(go env GOPATH)/bin/actionlint"
-      - run: bash .github/scripts/shellcheck-composites.sh
-      - run: bash .github/actions/setup-rust/test.sh
-      - run: bash .github/actions/require-jobs/test.sh
-      - run: bash .github/actions/upload-codecov/test.sh
-      - run: bash .github/actions/org-rules/test.sh
-      - run: bash .github/scripts/claude-review-test.sh
+          set -euo pipefail
+          for test in .github/actions/*/test.sh .github/scripts/*-test.sh; do
+            echo "::group::$test"
+            bash "$test"
+            echo "::endgroup::"
+          done
+
+  # The org's queue requires it (.mergify.yml). `always()`, not `!cancelled()`:
+  # "A job that is skipped will report its status as 'Success'"
+  # (docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-jobs-with-conditions).
+  ci-gate:
+    if: ${{ always() }}
+    needs: [workflows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      # main's, so a PR that breaks the gate is never judged by its own copy.
+      - uses: pixtuoid/.github/.github/actions/require-jobs@main
+        with:
+          results: ${{ toJSON(needs) }}
+          label: ci-gate

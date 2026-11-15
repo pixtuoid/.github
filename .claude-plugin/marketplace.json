@@ -1,0 +1,14 @@
+{
+  "name": "pixtuoid-dev",
+  "description": "The pixtuoid org's shared agent skills",
+  "owner": {
+    "name": "pixtuoid",
+    "url": "https://github.com/pixtuoid/.github"
+  },
+  "plugins": [
+    {
+      "name": "pixtuoid-dev",
+      "source": "./plugins/pixtuoid-dev"
+    }
+  ]
+}

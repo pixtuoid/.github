@@ -1,0 +1,40 @@
+name: 'Setup Tools'
+description: "Installs the given tools of the caller's mise.toml, and only those, through mise"
+
+inputs:
+  tools:
+    # The cache key below carries the list, and actions/cache refuses a comma
+    # (jdx/mise-action@f5be966, dist/index.js:83048).
+    description: 'Space-separated mise.toml [tools] keys'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    # mise then resolves only these tools, here and in later steps
+    # (mise.jdx.dev/configuration/settings.html, enable_tools).
+    - shell: bash
+      env:
+        TOOLS: ${{ inputs.tools }}
+      run: | # zizmor: ignore[github-env] the callers' `tools:` literals, never event data
+        set -euo pipefail
+        if [[ -z "$TOOLS" ]]; then
+          echo "::error::setup-tools: no tools given; an empty allowlist enables no tool, and the job would run the runner's own"
+          exit 1
+        fi
+        echo "MISE_ENABLE_TOOLS=${TOOLS// /,}" >>"$GITHUB_ENV"
+    - uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+      with:
+        # The action puts each tool's directory on PATH (src/index.ts,
+        # exportMisePath). Outside the checkout no mise.toml picks a shim's
+        # version, so it installs one or runs another binary on PATH
+        # (mise.jdx.dev/dev-tools/shims.html).
+        add_shims_to_path: false
+        # A releases outage fails only a fresh install (pixtuoid/pixtuoid#2193),
+        # and the default key omits the tool set (the action's README).
+        cache_key: '{{default}}-${{ inputs.tools }}'
+        # Every ref restores main's cache (docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching),
+        # so another ref's save only evicts it.
+        cache_save: ${{ github.ref == 'refs/heads/main' }}
+        # A hit still downloads every newer `latest` (pixtuoid/pixtuoid#2193).
+        cache_max_age_days: 1
