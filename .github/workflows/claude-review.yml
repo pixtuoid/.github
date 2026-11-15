@@ -66,7 +66,7 @@ jobs:
             | select($v | test("^Blocking: ([0-9]+|incomplete)$"))
             | ($l | index("Read:")) as $r
             | {commit_id, submitted_at, incomplete: ($v == "Blocking: incomplete"),
-               text: ([$l[] | capture("^Text: (?<hash>[0-9a-f]{12})$").hash] | first),
+               text_hash: ([$l[] | capture("^Text: (?<hash>[0-9a-f]{12})$").hash] | first),
                read: (if $v == "Blocking: incomplete" and $r != null then [$l[$r + 1:][] | capture("^- (?<id>[0-9a-f]{12}(\\.[0-9]+)?) ").id] else [] end)}
             | @json
           COMMENT: >-
@@ -91,15 +91,15 @@ jobs:
           # payload-schemas/api.github.com/pull_request/edited.schema.json), as
           # JSON so a body that was empty reads apart from one left alone.
           CHANGES: ${{ toJSON(github.event.changes) }}
-          TITLE: ${{ github.event.pull_request.title }}
-          BODY: ${{ github.event.pull_request.body }}
         run: |
           set -euo pipefail
           dir="$RUNNER_TEMP/review-context"
           mkdir -p "$dir"
           # A re-run keeps its original event (docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs),
-          # so after a retarget it would judge the old base.
-          live_base="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq .base.ref)"
+          # so the PR is read live: after a retarget it would judge the old
+          # base, and after an edit list stale lines.
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq '{base: .base.ref, title, body}' >"$dir/pr.json"
+          live_base="$(jq -r .base "$dir/pr.json")"
           if [[ "$live_base" != "$BASE_REF" ]]; then
             echo "::error::the PR's base is now $live_base, not this run's $BASE_REF: run the newest review instead"
             exit 1
@@ -119,26 +119,28 @@ jobs:
           after="$(awk 'NF { at[++n] = $2 } END { if (n > 1) print at[n - 1] }' <<<"$reviewed")"
           gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/comments?per_page=100" --jq "$COMMENT" >"$dir/comments.jsonl"
           jq -c -s --arg after "$after" "$RECHECK" "$dir/comments.jsonl" >"$dir/recheck.jsonl"
-          # A review's `Text:` line names the title and body it judged by this
-          # hash; given an edit's changes, it hashes the text before the edit.
+          # A review's `Text:` line names the live title and body it judged by
+          # this hash; given an edit's changes, it hashes the text before the
+          # edit.
           text_hash() {
-            jq -c --arg title "$TITLE" --arg body "$BODY" \
-              '{title: (if .title then .title.from else $title end), body: (if .body then .body.from else $body end)}' <<<"$1" |
+            jq -c --slurpfile pr "$dir/pr.json" \
+              '{title: (if .title then .title.from else $pr[0].title end), body: (if .body then .body.from else $pr[0].body end)}' <<<"$1" |
               sha1sum | cut -c1-12
           }
-          # A complete review at this head, the newest of the base, judged all
-          # but this edit when it names the text the edit started from; a push,
-          # an incomplete or lost run, or an edit on a draft breaks one of those.
-          newest="$(tail -n 1 "$dir/verdicts.jsonl" | jq -r '"\(.commit_id) \(.incomplete) \(.text)"')"
+          # A complete review at this head, the newest of the base, judged the
+          # text the edit started from when it names it, so only the lines since
+          # are new; a push, or an incomplete or lost run (an edit's own, or
+          # ready_for_review's after a draft), breaks one of those.
+          newest="$(tail -n 1 "$dir/verdicts.jsonl" | jq -r '"\(.commit_id) \(.incomplete) \(.text_hash)"')"
           if jq -e '.title or .body' <<<"$CHANGES" >/dev/null && [[ "$newest" == "$HEAD false $(text_hash "$CHANGES")" ]]; then
             # POSIX diff writes a removed line after "< " and an added one
             # after "> " (pubs.opengroup.org/onlinepubs/9799919799/utilities/diff.html).
             changed() {
               jq -e --arg f "$1" '.[$f]' <<<"$CHANGES" >/dev/null || return 0
-              { diff <(jq -r --arg f "$1" '.[$f].from' <<<"$CHANGES") <(printf '%s\n' "$2") || (($? == 1)); } |
+              { diff <(jq -r --arg f "$1" '.[$f].from' <<<"$CHANGES") <(jq -r --arg f "$1" '.[$f]' "$dir/pr.json") || (($? == 1)); } |
                 sed -n "s/^\([<>]\) /$1: \1 /p"
             }
-            { changed title "$TITLE"; changed body "$BODY"; } >"$dir/edited.md"
+            { changed title; changed body; } >"$dir/edited.md"
             echo "edited=$dir/edited.md" >>"$GITHUB_OUTPUT"
           fi
           {
@@ -277,7 +279,7 @@ jobs:
               - Wiring: every new field, parameter, constant or gate has a live consumer in the same diff; each item anywhere that reads or writes a field, variant or return meaning a scope hunk changes, or the state an invariant it changes governs, is checked against the change, listing those changes; and every new or changed test fails when the code it names is wrong.
               - Claims: each checkable claim the PR's title and body make holds at the head, and a claim the head contradicts is located where the head contradicts it. A behavior or published-contract change the body does not state is a non-blocking finding.
               - Must-run: each must-run item REVIEW.md lists that the PR's diff touches has its result in the PR body, and one without is blocking.
-            The scope is ${{ case(steps.scope.outputs.edited != '', format('the lines {0} lists, each one this run''s event removed (`<`) from or added (`>`) to the PR''s title or body, with the whole title and body as the context they are judged against, since a review judged the rest,', steps.scope.outputs.edited), 'the PR''s title and body') }} and each unit ${{ steps.diff.outputs.units }} lists, a unit being one hunk of the PR's whole diff, identical hunks together, or a file with no hunk (`<path>:file`): every unit no earlier review of the current base has judged, and each one new or changed since.
+            The scope is ${{ case(steps.scope.outputs.edited != '', format('the lines {0} lists, each one removed (`<`) from or added (`>`) to the PR''s title or body since a review judged the rest, with the whole title and body as the context they are judged against,', steps.scope.outputs.edited), 'the PR''s title and body') }} and each unit ${{ steps.diff.outputs.units }} lists, a unit being one hunk of the PR's whole diff, identical hunks together, or a file with no hunk (`<path>:file`): every unit no earlier review of the current base has judged, and each one new or changed since.
             Each line of ${{ steps.scope.outputs.recheck }} is an earlier finding with its recent replies. Where one of those replies says the head no longer has the defect or never had it, and no comment after that reply raised it again, the finding is a recheck: a candidate that the head still has its defect, given to its verifier with those replies. A finding that a kept recheck raised again is never a recheck again.
             1. Spawn the correctness-reviewer and the design-reviewer in parallel, each given the PR, the scope, the PR's whole diff in ${{ steps.diff.outputs.whole }} as the context every item is judged against, the base commit and the contract verbatim. Merge duplicates and add the rechecks, then spawn one verifier per candidate, given the PR, the base commit and the contract verbatim.
             2. Post each kept finding in the contract's format on its line of the PR's diff with mcp__github_inline_comment__create_inline_comment, commit_id the head, a kept recheck linking the comment that first raised it. A finding whose location is off the diff goes on the first head-side line the diff adds or changes in its file, or else on the first such line of the diff's first file that has one, its body opening with its location; where the diff adds no line, it goes on the first line the diff deletes, side LEFT, and where it neither adds nor deletes a line, it stays in the summary.

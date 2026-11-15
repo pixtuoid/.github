@@ -71,14 +71,14 @@ comment() {
 event() { jq -nc --arg ev "$1" --arg at "$(at "$2")" '{event: $ev, created_at: $at}'; }
 page() { jq -sc . >"$PAGES/$1.$2.json"; }
 
-# Runs the step for case $1 over the pages it wrote, its outputs in
-# $work/$1.out, and returns the step's status.
+# Runs the step for case $1 over the pages it wrote and the PR as it is live,
+# its outputs in $work/$1.out, and returns the step's status.
 scope_step() {
     : >"$work/$1.out"
+    jq -nc --arg ref "$live_base" --arg title "$title" --arg body "$body" '{base: {ref: $ref}, $title, $body}' >"$PAGES/pull.1.json"
     PAGES="$PAGES" GITHUB_REPOSITORY=org/repo PR=7 RUNNER_TEMP="$work/$1.tmp" GITHUB_OUTPUT="$work/$1.out" \
         VERDICTS="$verdicts_jq" COMMENT="$comment_jq" RECHECK="$recheck_jq" BASE_CHANGES="$base_changes_jq" BASE_REF=main \
-        RUN_MINUTES="$run_minutes" HEAD="$(sha 9)" CHANGES="$changes" TITLE="$title" BODY="$body" \
-        bash --noprofile --norc -eo pipefail -c "$script"
+        RUN_MINUTES="$run_minutes" HEAD="$(sha 9)" CHANGES="$changes" bash --noprofile --norc -eo pipefail -c "$script"
 }
 
 # The same, failing the test unless it passes, and sets $dir, $comments,
@@ -106,17 +106,14 @@ assert_recheck() {
     [[ "$got" == "$want" ]] || fail "$name: recheck $got, want $want"
 }
 
-# A case runs for an event that edits neither the title nor the body, unless
-# it sets $changes as that event carries it.
+# A case's PR is live with this base, title and body, and it runs for an
+# event that edits neither, unless it sets $changes as that event carries it.
 new_case() {
     PAGES="$work/$1"
     mkdir -p "$PAGES"
     for kind in reviews comments events; do printf '' | page "$kind" 1; done
-    pr_base main
-    changes=null title='a title' body=$'a body\nof two lines'
+    live_base=main changes=null title='a title' body=$'a body\nof two lines'
 }
-# pr_base <ref>: the PR's live base, as the pulls endpoint serves it.
-pr_base() { jq -nc --arg ref "$1" '{base: {ref: $ref}}' >"$PAGES/pull.1.json"; }
 
 # The verdicts the diff step replays, oldest first, as `<commit>/<C or I>/<ids>`:
 # the commit's number, complete or incomplete, and the ids listed as judged.
@@ -180,7 +177,7 @@ assert_verdicts auto-retarget "1/C/ 3/C/"
 # A re-run keeps its event, so a re-run after a retarget of a run from before
 # it reads the base the PR has left; it fails, never posting a verdict.
 new_case stale-base
-pr_base other
+live_base=other
 if scope_step stale-base >"$work/stale-base.log" 2>&1; then
     fail "stale-base: a run whose base the PR has left passed"
 fi
@@ -272,7 +269,7 @@ assert_edited edit-base none
 
 # So does an edit unless the newest verdict of the current base is a complete
 # one at its head naming the text the edit started from: one at an older head
-# is a push's run the edit cancelled, an incomplete one may have left lines
+# means the edit cancelled a push's run, an incomplete one may have left lines
 # unread, one from before a base change judged them against the old base, one
 # naming other text missed an edit whose run, its own or a draft's
 # ready_for_review one, ended without a verdict, and one without the line, or
@@ -299,6 +296,20 @@ new_case edit-without-text
 review "$bot" 9 'Blocking: 0' | page reviews 1
 edit title 'new title'
 assert_edited edit-without-text none
+
+# A re-run replays its event's changes while the text has moved on, so the
+# lines are the live text's against the judged one, a later edit's included,
+# and a later edit of the field the event left alone names other text.
+new_case edit-rerun
+judged 9 | page reviews 1
+edit body 'the edit re-run'
+body='a later edit'
+assert_edited edit-rerun $'body: < a body\nbody: < of two lines\nbody: > a later edit'
+new_case edit-rerun-other-field
+judged 9 | page reviews 1
+edit body 'the edit re-run'
+title='a later title'
+assert_edited edit-rerun-other-field none
 
 # The diff step, over a real repo: base b, the PR's commits p1 and p2, then a
 # merge of the base's next commit b2, resolving their conflict in a; the base
