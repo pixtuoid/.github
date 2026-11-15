@@ -390,14 +390,15 @@ for agent in ("correctness-reviewer", "design-reviewer", "verifier"):
 [[ "$(yq -r "$action | .with.classify_inline_comments" "$WORKFLOW_FILE")" == false ]] ||
     fail "classify_inline_comments: buffering would post inline reviews after the summary VERDICT needs as the newest"
 
-# The step that sets the required check, run over a case's reviews at head 9.
+# The step that sets the required check, run over a case's reviews at head 9
+# for a job started at $3, minute 0 unless given.
 # A crash fails the check too, so a fail counts only with the step's ::error::.
 check_step='.jobs.claude-review.steps[] | select(.env.VERDICT != null)'
 check_script="$(yq -e -r "$check_step | .run" "$WORKFLOW_FILE")"
 check_jq="$(yq -e -r "$check_step | .env.VERDICT" "$WORKFLOW_FILE")"
 assert_check() {
     local name="$1" want="$2" got=pass
-    PAGES="$PAGES" GITHUB_REPOSITORY=org/repo PR=7 HEAD_SHA="$(sha 9)" VERDICT="$check_jq" \
+    PAGES="$PAGES" GITHUB_REPOSITORY=org/repo PR=7 HEAD_SHA="$(sha 9)" STARTED="${3-$(at 0)}" VERDICT="$check_jq" \
         bash --noprofile --norc -eo pipefail -c "$check_script" >"$work/$name.out" 2>"$work/$name.err" || got=fail
     [[ "$got" == pass ]] || grep -q '^::error::' "$work/$name.out" || fail "check $name: the step crashed: $(cat "$work/$name.err")"
     [[ "$got" == "$want" ]] || fail "check $name: the check would $got, want $want"
@@ -446,3 +447,17 @@ assert_check check-rereview-clean pass
 new_case check-rereview-blocks
 { review "$bot" 9 "$clean"; review "$bot" 9 'Blocking: 1' 10; } | page reviews 1
 assert_check check-rereview-blocks fail
+
+# A re-run, or an edit's run, at the same head finds the earlier run's review
+# there, and the action passes when the model posts nothing. The start is
+# what the step STARTED names writes: every repo runs main's copy, so a
+# renamed key or a changed format would reach no review before it lands.
+started_from="$(yq -e -r "$check_step | .env.STARTED" "$WORKFLOW_FILE")"
+[[ "$started_from" =~ ^\$\{\{\ steps\.([A-Za-z0-9_-]+)\.outputs\.([A-Za-z0-9_-]+)\ \}\}$ ]] ||
+    fail "STARTED: '$started_from' names no step's output"
+start_key="${BASH_REMATCH[2]}"
+start_script="$(yq -e -r ".jobs.claude-review.steps[] | select(.id == \"${BASH_REMATCH[1]}\") | .run" "$WORKFLOW_FILE")"
+GITHUB_OUTPUT="$work/start.out" bash --noprofile --norc -eo pipefail -c "$start_script" || fail "start: the step failed"
+new_case check-rerun-silent
+review "$bot" 9 "$clean" | page reviews 1
+assert_check check-rerun-silent fail "$(sed -n "s/^$start_key=//p" "$work/start.out")"

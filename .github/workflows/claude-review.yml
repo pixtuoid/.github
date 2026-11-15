@@ -34,6 +34,13 @@ jobs:
       contents: read
       pull-requests: write
     steps:
+      # A re-run, or an edit's run, at an unchanged head finds the earlier
+      # run's review there, so the verdict step counts only one submitted after
+      # this: the runner's clock in UTC, which the API's timestamps are in
+      # (docs.github.com/en/rest/using-the-rest-api/timezones-and-the-rest-api).
+      - name: Note when this run started
+        id: start
+        run: echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >>"$GITHUB_OUTPUT"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
@@ -282,13 +289,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR: ${{ github.event.pull_request.number }}
+          STARTED: ${{ steps.start.outputs.at }}
           VERDICT: >-
-            .[] | select(.user.login == "github-actions[bot]" and .commit_id == env.HEAD_SHA)
+            .[] | select(.user.login == "github-actions[bot]" and .commit_id == env.HEAD_SHA
+              and (.submitted_at | fromdate) > (env.STARTED | fromdate))
             | .body | split("\n")[0]
         run: |
           set -euo pipefail
           verdict="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews?per_page=100" --jq "$VERDICT" | tail -n 1)"
           if [[ "$verdict" != "Blocking: 0" ]]; then
-            echo "::error::the review at ${HEAD_SHA::7} reports a blocking finding or no verdict: fix it, or disposition and resolve its thread, then re-run"
+            echo "::error::this run's review at ${HEAD_SHA::7} reports a blocking finding or no verdict: fix it, or disposition and resolve its thread, then re-run"
             exit 1
           fi
