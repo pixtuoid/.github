@@ -77,17 +77,19 @@ scope_step() {
     : >"$work/$1.out"
     PAGES="$PAGES" GITHUB_REPOSITORY=org/repo PR=7 RUNNER_TEMP="$work/$1.tmp" GITHUB_OUTPUT="$work/$1.out" \
         VERDICTS="$verdicts_jq" COMMENT="$comment_jq" RECHECK="$recheck_jq" BASE_CHANGES="$base_changes_jq" BASE_REF=main \
-        RUN_MINUTES="$run_minutes" bash --noprofile --norc -eo pipefail -c "$script"
+        RUN_MINUTES="$run_minutes" HEAD="$(sha 9)" CHANGES="$changes" TITLE="$title" BODY="$body" \
+        bash --noprofile --norc -eo pipefail -c "$script"
 }
 
 # The same, failing the test unless it passes, and sets $dir, $comments,
-# $recheck and $verdicts.
+# $recheck, $edited and $verdicts.
 run_step() {
     local out="$work/$1.out"
     scope_step "$1" || fail "$1: the step failed"
     dir="$(sed -n 's/^dir=//p' "$out")"
     comments="$(sed -n 's/^comments=//p' "$out")"
     recheck="$(sed -n 's/^recheck=//p' "$out")"
+    edited="$(sed -n 's/^edited=//p' "$out")"
     verdicts="$dir/verdicts.jsonl"
     [[ -f "$comments" ]] || fail "$1: no comments file at '$comments'"
     [[ -f "$recheck" ]] || fail "$1: no recheck file at '$recheck'"
@@ -102,11 +104,14 @@ assert_recheck() {
     [[ "$got" == "$want" ]] || fail "$name: recheck $got, want $want"
 }
 
+# A case runs for an event that edits neither the title nor the body, unless
+# it sets $changes as that event carries it.
 new_case() {
     PAGES="$work/$1"
     mkdir -p "$PAGES"
     for kind in reviews comments events; do printf '' | page "$kind" 1; done
     pr_base main
+    changes=null title='a title' body=$'a body\nof two lines'
 }
 # pr_base <ref>: the PR's live base, as the pulls endpoint serves it.
 pr_base() { jq -nc --arg ref "$1" '{base: {ref: $ref}}' >"$PAGES/pull.1.json"; }
@@ -213,6 +218,58 @@ new_case recheck-window
     comment 9 'still broken?' 7 40
 } | page comments 1
 assert_recheck recheck-window '[[3,[4]],[5,[6]],[7,[9]]]'
+
+# The lines of the title and body the step lists for the scope, or "none" when
+# it names no file and the whole title and body stay in scope.
+assert_edited() {
+    local name="$1" want="$2" got=none
+    run_step "$name"
+    if [[ -n "$edited" ]]; then
+        [[ -f "$edited" ]] || fail "$name: no edited file at '$edited'"
+        got="$(cat "$edited")"
+    fi
+    [[ "$got" == "$want" ]] || fail "$name: edited '$got', want '$want'"
+}
+
+# After a complete review at the head, an edit lists only the lines it added or
+# changed, a quoted line with its own "> ".
+new_case edit-body
+review "$bot" 9 'Blocking: 0' | page reviews 1
+changes="$(jq -nc --arg from $'keep\nold\n> quote\nkeep too' '{body: {from: $from}}')"
+body=$'keep\nnew\n> quote\nkeep too\n> added'
+assert_edited edit-body $'body: new\nbody: > added'
+new_case edit-title
+review "$bot" 9 'Blocking: 0' | page reviews 1
+changes="$(jq -nc '{title: {from: "old title"}}')"
+assert_edited edit-title 'title: a title'
+
+# Any other event, a base-only edit included, keeps the whole title and body,
+# since a push or a new base can leave an old sentence untrue.
+new_case edit-none
+review "$bot" 9 'Blocking: 0' | page reviews 1
+assert_edited edit-none none
+new_case edit-base
+review "$bot" 9 'Blocking: 0' | page reviews 1
+changes="$(jq -nc --arg sha "$(sha 1)" '{base: {ref: {from: "dev"}, sha: {from: $sha}}}')"
+assert_edited edit-base none
+
+# So does an edit whose newest verdict of the current base is not a complete
+# one at its head: one at an older head is a push's run the edit cancelled, an
+# incomplete one may not have read the text, and one from before a base change
+# judged it against the old base.
+new_case edit-after-push
+review "$bot" 8 'Blocking: 0' | page reviews 1
+changes="$(jq -nc '{title: {from: "old title"}}')"
+assert_edited edit-after-push none
+new_case edit-after-incomplete
+{ review "$bot" 9 'Blocking: 0'; review "$bot" 9 'Blocking: incomplete' 10; } | page reviews 1
+changes="$(jq -nc '{title: {from: "old title"}}')"
+assert_edited edit-after-incomplete none
+new_case edit-after-base-change
+review "$bot" 9 'Blocking: 0' | page reviews 1
+event base_ref_changed 5 | page events 1
+changes="$(jq -nc '{title: {from: "old title"}}')"
+assert_edited edit-after-base-change none
 
 # The diff step, over a real repo: base b, the PR's commits p1 and p2, then a
 # merge of the base's next commit b2, resolving their conflict in a; the base
