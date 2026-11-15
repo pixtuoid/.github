@@ -71,27 +71,33 @@ comment() {
 event() { jq -nc --arg ev "$1" --arg at "$(at "$2")" '{event: $ev, created_at: $at}'; }
 page() { jq -sc . >"$PAGES/$1.$2.json"; }
 
-# Runs the step for case $1 over the pages it wrote, its outputs in
-# $work/$1.out, and returns the step's status.
+# Runs the step for case $1 over the pages it wrote and the PR as it is live,
+# an empty body served as null as the API does (rust-lang/rust#165855), its
+# outputs in $work/$1.out, and returns the step's status.
 scope_step() {
     : >"$work/$1.out"
+    jq -nc --arg ref "$live_base" --arg title "$title" --arg body "$body" \
+        '{base: {ref: $ref}, $title, body: (if $body == "" then null else $body end)}' >"$PAGES/pull.1.json"
     PAGES="$PAGES" GITHUB_REPOSITORY=org/repo PR=7 RUNNER_TEMP="$work/$1.tmp" GITHUB_OUTPUT="$work/$1.out" \
         VERDICTS="$verdicts_jq" COMMENT="$comment_jq" RECHECK="$recheck_jq" BASE_CHANGES="$base_changes_jq" BASE_REF=main \
-        RUN_MINUTES="$run_minutes" bash --noprofile --norc -eo pipefail -c "$script"
+        RUN_MINUTES="$run_minutes" HEAD="$(sha 9)" CHANGES="$changes" bash --noprofile --norc -eo pipefail -c "$script"
 }
 
 # The same, failing the test unless it passes, and sets $dir, $comments,
-# $recheck and $verdicts.
+# $recheck, $edited, $text_hash and $verdicts.
 run_step() {
     local out="$work/$1.out"
     scope_step "$1" || fail "$1: the step failed"
     dir="$(sed -n 's/^dir=//p' "$out")"
     comments="$(sed -n 's/^comments=//p' "$out")"
     recheck="$(sed -n 's/^recheck=//p' "$out")"
+    edited="$(sed -n 's/^edited=//p' "$out")"
+    text_hash="$(sed -n 's/^text_hash=//p' "$out")"
     verdicts="$dir/verdicts.jsonl"
     [[ -f "$comments" ]] || fail "$1: no comments file at '$comments'"
     [[ -f "$recheck" ]] || fail "$1: no recheck file at '$recheck'"
     [[ -f "$verdicts" ]] || fail "$1: no verdicts file at '$verdicts'"
+    [[ "$text_hash" =~ ^[0-9a-f]{12}$ ]] || fail "$1: no text hash, got '$text_hash'"
 }
 
 # The finding ids of the recheck file, each with its replies' ids.
@@ -102,14 +108,14 @@ assert_recheck() {
     [[ "$got" == "$want" ]] || fail "$name: recheck $got, want $want"
 }
 
+# A case's PR is live with this base, title and body, and it runs for an
+# event that edits neither, unless it sets $changes as that event carries it.
 new_case() {
     PAGES="$work/$1"
     mkdir -p "$PAGES"
     for kind in reviews comments events; do printf '' | page "$kind" 1; done
-    pr_base main
+    live_base=main changes=null title='a title' body=$'a body\nof two lines'
 }
-# pr_base <ref>: the PR's live base, as the pulls endpoint serves it.
-pr_base() { jq -nc --arg ref "$1" '{base: {ref: $ref}}' >"$PAGES/pull.1.json"; }
 
 # The verdicts the diff step replays, oldest first, as `<commit>/<C or I>/<ids>`:
 # the commit's number, complete or incomplete, and the ids listed as judged.
@@ -173,7 +179,7 @@ assert_verdicts auto-retarget "1/C/ 3/C/"
 # A re-run keeps its event, so a re-run after a retarget of a run from before
 # it reads the base the PR has left; it fails, never posting a verdict.
 new_case stale-base
-pr_base other
+live_base=other
 if scope_step stale-base >"$work/stale-base.log" 2>&1; then
     fail "stale-base: a run whose base the PR has left passed"
 fi
@@ -213,6 +219,110 @@ new_case recheck-window
     comment 9 'still broken?' 7 40
 } | page comments 1
 assert_recheck recheck-window '[[3,[4]],[5,[6]],[7,[9]]]'
+
+# The lines of the title and body the step lists for the scope, or "none" when
+# it names no file and the whole title and body stay in scope.
+assert_edited() {
+    local name="$1" want="$2" got=none
+    run_step "$name"
+    if [[ -n "$edited" ]]; then
+        [[ -f "$edited" ]] || fail "$name: no edited file at '$edited'"
+        got="$(cat "$edited")"
+    fi
+    [[ "$got" == "$want" ]] || fail "$name: edited '$got', want '$want'"
+}
+
+# judged <commit> [first line] [minute]: the bot's summary at <commit> of the
+# case's title and body as they are now, with the `Text:` line step 3 asks for,
+# its hash the scope step's own.
+judged() {
+    run_step "$(basename "$PAGES")-judged"
+    review "$bot" "$1" "$(printf '%s\nText: %s\n\n**Verdict:** fine' "${2:-Blocking: 0}" "$text_hash")" "${3:-$1}"
+}
+# edit <title or body> <text>: the case's event edits that field to <text>.
+edit() {
+    local from
+    if [[ "$1" == title ]]; then from="$title" title="$2"; else from="$body" body="$2"; fi
+    changes="$(jq -c --arg f "$1" --arg from "$from" '(. // {}) + {($f): {from: $from}}' <<<"$changes")"
+}
+
+# After a complete review of the text at the head, an edit lists only the lines
+# it removed or added, so a deletion alone still leaves one in scope, and a
+# quoted line keeps its own "> ".
+new_case edit-body
+body=$'keep\nold\nmid\ngone\n> quote\nkeep too'
+judged 9 | page reviews 1
+edit body $'keep\nnew\nmid\n> quote\nkeep too\n> added'
+assert_edited edit-body $'body: < old\nbody: > new\nbody: < gone\nbody: > > added'
+new_case edit-title
+judged 9 | page reviews 1
+edit title 'new title'
+assert_edited edit-title $'title: < a title\ntitle: > new title'
+# An empty body has no line, so clearing one lists only what it removed, and
+# filling one after a review of none lists only what it added.
+new_case edit-clear
+judged 9 | page reviews 1
+edit body ''
+assert_edited edit-clear $'body: < a body\nbody: < of two lines'
+new_case edit-fill
+body=''
+judged 9 | page reviews 1
+edit body 'a first body'
+assert_edited edit-fill 'body: > a first body'
+
+# Any other event, a base-only edit included, keeps the whole title and body,
+# since a push or a new base can leave an old sentence untrue.
+new_case edit-none
+judged 9 | page reviews 1
+assert_edited edit-none none
+new_case edit-base
+judged 9 | page reviews 1
+changes="$(jq -nc --arg sha "$(sha 1)" '{base: {ref: {from: "dev"}, sha: {from: $sha}}}')"
+assert_edited edit-base none
+
+# So does an edit unless the newest verdict of the current base is a complete
+# one at its head naming the text the edit started from: one at an older head
+# means the edit cancelled a push's run, an incomplete one may have left lines
+# unread, one from before a base change judged them against the old base, one
+# naming other text missed an edit whose run, its own or a draft's
+# ready_for_review one, ended without a verdict, and one without the line, or
+# with it garbled, names no text.
+new_case edit-after-push
+judged 8 | page reviews 1
+edit title 'new title'
+assert_edited edit-after-push none
+new_case edit-after-incomplete
+{ judged 9; judged 9 'Blocking: incomplete' 10; } | page reviews 1
+edit title 'new title'
+assert_edited edit-after-incomplete none
+new_case edit-after-base-change
+judged 9 | page reviews 1
+event base_ref_changed 5 | page events 1
+edit title 'new title'
+assert_edited edit-after-base-change none
+new_case edit-after-lost-run
+judged 9 | page reviews 1
+body='an edit no verdict judged'
+edit body 'the next edit'
+assert_edited edit-after-lost-run none
+new_case edit-without-text
+review "$bot" 9 'Blocking: 0' | page reviews 1
+edit title 'new title'
+assert_edited edit-without-text none
+
+# A re-run replays its event's changes while the text has moved on, so the
+# lines are the live text's against the judged one, a later edit's included,
+# and a later edit of the field the event left alone names other text.
+new_case edit-rerun
+judged 9 | page reviews 1
+edit body 'the edit re-run'
+body='a later edit'
+assert_edited edit-rerun $'body: < a body\nbody: < of two lines\nbody: > a later edit'
+new_case edit-rerun-other-field
+judged 9 | page reviews 1
+edit body 'the edit re-run'
+title='a later title'
+assert_edited edit-rerun-other-field none
 
 # The diff step, over a real repo: base b, the PR's commits p1 and p2, then a
 # merge of the base's next commit b2, resolving their conflict in a; the base
@@ -297,7 +407,7 @@ a_id="$(ids_of whole a)" p2_id="$(ids_of whole p2)"
 [[ "$(paths reruns)" == ".gitattributes " ]] || fail "diff reruns: want only .gitattributes left, got: $(paths reruns)"
 
 # An edit of the title or body re-runs the review at the same head, and after
-# a complete review there no unit is left, so it reads the title and body.
+# a complete review there no unit is left, so it reads only the edit's lines.
 verdict "$merge" false | run_diff edited "$merge"
 [[ -z "$(paths edited)" ]] || fail "diff edited: a complete review at the head left units in scope: $(paths edited)"
 
@@ -378,12 +488,16 @@ for agent in ("correctness-reviewer", "design-reviewer", "verifier"):
     assert isinstance(agents[agent]["tools"], list), f"--agents gives {agent} no tools"
 ' || fail "claude_args: --settings and --agents must split into JSON that gives each listed agent its tools"
 
-# Step 3's `Read:` format is what the model writes; read-back holds VERDICTS
-# to a line the diff step wrote, and this holds the prompt to the same format,
-# so a reworded prompt can't leave every unit in scope forever.
+# Step 3's `Read:` and `Text:` lines are what the model writes; read-back and
+# judged hold VERDICTS to lines the steps wrote, and these hold the prompt to
+# the same format, so a reworded prompt can't leave every unit, or the whole
+# title and body, in scope forever.
 # shellcheck disable=SC2016 # the backticks are the prompt's own, not expansions
 [[ "$prompt" == *'an incomplete one ends with a `Read:` line, then the `- <id> <path>:<range>` line of each scope unit'* ]] ||
     fail "prompt: step 3 no longer asks for the \`Read:\` format VERDICTS parses"
+# shellcheck disable=SC2016 # the backticks and the expression are the prompt's own
+[[ "$prompt" == *'its second line is exactly `Text: ${{ steps.scope.outputs.text_hash }}`'* ]] ||
+    fail "prompt: step 3 no longer asks for the \`Text:\` line VERDICTS parses"
 [[ "$(yq -r "$action | .with.classify_inline_comments" "$WORKFLOW_FILE")" == false ]] ||
     fail "classify_inline_comments: buffering would post inline reviews after the summary VERDICT needs as the newest"
 
