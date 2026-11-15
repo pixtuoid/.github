@@ -231,17 +231,18 @@ assert_edited() {
     [[ "$got" == "$want" ]] || fail "$name: edited '$got', want '$want'"
 }
 
-# After a complete review at the head, an edit lists only the lines it added or
-# changed, a quoted line with its own "> ".
+# After a complete review at the head, an edit lists only the lines it removed
+# or added, so a deletion alone still leaves one in scope, and a quoted line
+# keeps its own "> ".
 new_case edit-body
 review "$bot" 9 'Blocking: 0' | page reviews 1
-changes="$(jq -nc --arg from $'keep\nold\n> quote\nkeep too' '{body: {from: $from}}')"
-body=$'keep\nnew\n> quote\nkeep too\n> added'
-assert_edited edit-body $'body: new\nbody: > added'
+changes="$(jq -nc --arg from $'keep\nold\nmid\ngone\n> quote\nkeep too' '{body: {from: $from}}')"
+body=$'keep\nnew\nmid\n> quote\nkeep too\n> added'
+assert_edited edit-body $'body: < old\nbody: > new\nbody: < gone\nbody: > > added'
 new_case edit-title
 review "$bot" 9 'Blocking: 0' | page reviews 1
 changes="$(jq -nc '{title: {from: "old title"}}')"
-assert_edited edit-title 'title: a title'
+assert_edited edit-title $'title: < old title\ntitle: > a title'
 
 # Any other event, a base-only edit included, keeps the whole title and body,
 # since a push or a new base can leave an old sentence untrue.
@@ -354,7 +355,7 @@ a_id="$(ids_of whole a)" p2_id="$(ids_of whole p2)"
 [[ "$(paths reruns)" == ".gitattributes " ]] || fail "diff reruns: want only .gitattributes left, got: $(paths reruns)"
 
 # An edit of the title or body re-runs the review at the same head, and after
-# a complete review there no unit is left, so it reads the title and body.
+# a complete review there no unit is left, so it reads only the edit's lines.
 verdict "$merge" false | run_diff edited "$merge"
 [[ -z "$(paths edited)" ]] || fail "diff edited: a complete review at the head left units in scope: $(paths edited)"
 
