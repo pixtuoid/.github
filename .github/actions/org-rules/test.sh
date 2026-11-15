@@ -75,8 +75,8 @@ $end
 " fail "an empty copy"
 FILE="$work/missing.md" RULES="$rules" bash -eo pipefail -c "$check_script" >/dev/null 2>&1 && fail "passed a missing guide"
 
-# A fixture repo named $1 under $work, its path printed, holding every stub
-# the shared-config step requires.
+# A fixture directory labelled $1 under $work, its path printed, holding
+# every stub the shared-config step requires.
 stub_repo() {
     local repo="$work/stubs-$1"
     mkdir -p "$repo/.github/workflows" "$repo/.claude"
@@ -85,10 +85,10 @@ stub_repo() {
     echo 'extends: .github' >"$repo/.mergify.yml"
     echo "$repo"
 }
-# assert_config <repo> <name> <pass|fail> <label> [source, this checkout unless given]
+# assert_config <dir> <repo name> <pass|fail> <label> [source, this checkout unless given]
 assert_config() {
-    local repo="$1" name="$2" expect="$3" label="$4" source="${5:-$PWD}"
-    if (cd "$repo" && env "${config_env[@]}" SOURCE="$source" REPO="pixtuoid/$name" bash -eo pipefail -c "$config_script") >"$work/config.out" 2>&1; then
+    local dir="$1" gh_repo="$2" expect="$3" label="$4" source="${5:-$PWD}"
+    if (cd "$dir" && env "${config_env[@]}" SOURCE="$source" REPO="pixtuoid/$gh_repo" bash -eo pipefail -c "$config_script") >"$work/config.out" 2>&1; then
         [[ "$expect" == pass ]] || fail "passed $label"
     else
         [[ "$expect" == fail ]] || fail "failed $label: $(cat "$work/config.out")"
@@ -159,6 +159,8 @@ assert_config "$repo" pixtuoid fail "a .release-plz.toml whose prefix the org's 
 repo="$(stub_repo source-no-queue)"
 rm "$repo/.mergify.yml"
 assert_config "$repo" .github fail "the source with no .mergify.yml" "$repo"
+grep -q '^::error file=.mergify.yml::org-rules: not found' "$work/config.out" ||
+    fail "the source with no .mergify.yml: no annotation says it is missing: $(cat "$work/config.out")"
 repo="$(stub_repo source-itself)"
 cp .mergify.yml "$repo/.mergify.yml"
 assert_config "$repo" .github pass "the source's own .mergify.yml, which Mergify lets extend nothing" "$repo"

@@ -49,7 +49,7 @@ runs:
         REPO: ${{ github.repository }}
         # The source's marketplaces and enabled plugins are the org's; a repo
         # adds its own beside them.
-        SHARED: >-
+        PLUGINS: >-
           $src[0] as $want
           | (.extraKnownMarketplaces // {}) as $markets | (.enabledPlugins // {}) as $plugins
           | ($want.extraKnownMarketplaces | to_entries | all(.value == $markets[.key]))
@@ -82,9 +82,11 @@ runs:
         if [[ "${REPO#*/}" != .github && "$(yq -r '.extends' .mergify.yml 2>/dev/null)" != .github ]]; then
           drift .mergify.yml "needs 'extends: .github', the org's queue, and only the repo's own rules beside it"
         fi
-        if ! yq -o=json . .mergify.yml |
+        if [[ ! -f .mergify.yml ]]; then
+          drift .mergify.yml "not found: it holds the repo's queue config"
+        elif ! yq -o=json . .mergify.yml |
           jq -e --argjson org "$(yq -o=json '.defaults.queue_rule' "$SOURCE/.mergify.yml")" "$CONDITIONS" >/dev/null; then
-          drift .mergify.yml "a merge_conditions or queue_conditions list here replaces the org's, so it keeps each entry pixtuoid/.github's defaults.queue_rule lists for that key"
+          drift .mergify.yml "a merge_conditions or queue_conditions list here replaces the org's, so it must keep each entry pixtuoid/.github's defaults.queue_rule lists for that key"
         fi
         # The org's queue keeps a release PR out by its branch's prefix, and
         # release-plz reads the first of these (release-plz.dev/docs/config)
@@ -98,7 +100,7 @@ runs:
             drift "$config" "its PR branch prefix '$prefix' is not '$kept_out', the one pixtuoid/.github's .mergify.yml keeps out of the queue"
           fi
         done
-        if ! jq -e --slurpfile src "$SOURCE/.claude/settings.json" "$SHARED" .claude/settings.json >/dev/null; then
+        if ! jq -e --slurpfile src "$SOURCE/.claude/settings.json" "$PLUGINS" .claude/settings.json >/dev/null; then
           drift .claude/settings.json "needs pixtuoid/.github's extraKnownMarketplaces and enabledPlugins entries as that repo's .claude/settings.json has them"
         fi
         # A repo's own file replaces the central one whole

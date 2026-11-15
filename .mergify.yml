@@ -13,9 +13,9 @@ merge_queue:
 # The rule's values sit here, not in the rule: a repo's own `default` rule
 # replaces this one whole, while "remote default values will apply to the
 # local configuration" (docs.mergify.com/configuration/sharing), so it sets
-# only the keys that differ. A condition list it sets replaces the org's, so
-# it restates the org's beside its own, such as a full tier in
-# merge_conditions (org-rules' shared-config step checks both lists).
+# only the keys that differ. A queue_conditions or merge_conditions list it
+# sets replaces the org's, so org-rules' shared-config step checks that it
+# restates the org's entries beside its own, such as a full tier.
 defaults:
   queue_rule:
     batch_size: 5
@@ -45,7 +45,8 @@ defaults:
     # The PR itself: the protections' required checks and thread resolution,
     # restated since nothing is injected.
     queue_conditions:
-      # A stacked PR waits until its base lands and GitHub retargets it.
+      # A stacked PR waits until its base merges and that branch is deleted,
+      # when GitHub retargets it (docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-and-deleting-branches-within-your-repository).
       - base = main
       - -draft
       # A release PR merges by hand, its repo's release step.
