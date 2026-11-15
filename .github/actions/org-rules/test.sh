@@ -11,7 +11,11 @@ fail() {
 step() { yq -e -r ".runs.steps[] | select(.name == \"$1\") | .run" .github/actions/org-rules/action.yml; }
 check_script="$(step guide)"
 stubs_script="$(step stubs)"
-shared="$(yq -e -r '.runs.steps[] | select(.name == "stubs") | .env.SHARED' .github/actions/org-rules/action.yml)"
+# The stubs step's env but its ${{ }} values, which each case sets.
+stubs_env=()
+while IFS= read -r -d '' kv; do stubs_env+=("$kv"); done < <(
+    yq -o=json '.runs.steps[] | select(.name == "stubs") | .env' .github/actions/org-rules/action.yml |
+        jq -j 'to_entries[] | select(.value | contains("${{") | not) | "\(.key)=\(.value)\u0000"')
 rules=.github/actions/org-rules/org-rules.md
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -82,7 +86,7 @@ stub_repo() {
 }
 assert_stubs() {
     local repo="$1" name="$2" expect="$3" label="$4"
-    if (cd "$repo" && SOURCE="$OLDPWD" REPO="pixtuoid/$name" SHARED="$shared" bash -eo pipefail -c "$stubs_script") >"$work/stubs.out" 2>&1; then
+    if (cd "$repo" && env "${stubs_env[@]}" SOURCE="$OLDPWD" REPO="pixtuoid/$name" bash -eo pipefail -c "$stubs_script") >"$work/stubs.out" 2>&1; then
         [[ "$expect" == pass ]] || fail "passed $label"
     else
         [[ "$expect" == fail ]] || fail "failed $label: $(cat "$work/stubs.out")"
@@ -123,3 +127,23 @@ assert_stubs "$repo" lofi fail "a repo-level .coderabbit.yaml"
 repo="$(stub_repo coderabbit-ts)"
 touch "$repo/.coderabbit.config.ts"
 assert_stubs "$repo" lofi fail "a repo-level .coderabbit.config.ts"
+# A repo's own merge_conditions list replaces the org's whole.
+repo="$(stub_repo own-conditions)"
+yq -n '.extends = ".github" | .queue_rules = [{"name": "default", "merge_conditions": load(".mergify.yml").defaults.queue_rule.merge_conditions + ["check-success = full-gate"]}]' >"$repo/.mergify.yml"
+assert_stubs "$repo" apple pass "a default rule whose merge_conditions add to the org's"
+repo="$(stub_repo dropped-condition)"
+yq -n '.extends = ".github" | .queue_rules = [{"name": "default", "merge_conditions": (load(".mergify.yml").defaults.queue_rule.merge_conditions | .[1:]) + ["check-success = full-gate"]}]' >"$repo/.mergify.yml"
+assert_stubs "$repo" apple fail "a default rule whose merge_conditions drop one of the org's"
+repo="$(stub_repo dropped-default)"
+yq -n '.extends = ".github" | .defaults.queue_rule.merge_conditions = ["check-success = full-gate"]' >"$repo/.mergify.yml"
+assert_stubs "$repo" apple fail "local defaults whose merge_conditions drop the org's"
+# The org's queue keeps a release PR out by its branch's prefix.
+repo="$(stub_repo release-plz-default)"
+printf '[workspace]\n\n[[package]]\nname = "a"\n' >"$repo/release-plz.toml"
+assert_stubs "$repo" lofi pass "a release-plz.toml on release-plz's default prefix"
+repo="$(stub_repo release-plz-moved)"
+printf '[workspace]\npr_branch_prefix = "release-"\n' >"$repo/release-plz.toml"
+assert_stubs "$repo" pixtuoid fail "a release-plz.toml whose prefix the org's queue lets in"
+repo="$(stub_repo release-plz-config-dir)"
+mkdir -p "$repo/.config" && printf '[workspace]\npr_branch_prefix = "release-"\n' >"$repo/.config/release-plz.toml"
+assert_stubs "$repo" pixtuoid fail "a .config/release-plz.toml whose prefix the org's queue lets in"
