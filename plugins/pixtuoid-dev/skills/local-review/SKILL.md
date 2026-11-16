@@ -55,20 +55,20 @@ so running it here first folds them into one commit.
    say.
 5. **Fold** the accepted findings into one commit, and append each kept
    finding to the ledger with its disposition: the fold's sha or the
-   refutation. Then rerun steps 1–4 at that commit, scoped as the review
-   contract scopes a re-review ("every unit no earlier review of the current
-   base has judged, and each one new or changed since"): the hunks of
-   `<base>...<fold>` that `git diff <previous head> <fold>` touches, and the
-   whole diff again only once the base has changed.
-   Fold again until a re-run keeps no blocking finding. The non-blocking ones
-   that run kept go through step 4 into one last fold, ledgered as above with no
-   re-run, and the CI review judges that fold.
+   refutation. When the fold holds a blocking finding, rerun steps 1–4 at that
+   commit, scoped as the review contract scopes a re-review ("every unit no
+   earlier review of the current base has judged, and each one new or changed
+   since"): the hunks of `<base>...<fold>` that `git diff <previous head> <fold>`
+   touches, and the whole diff again only once the base has changed, until a
+   re-run keeps no blocking finding. A run that keeps no blocking finding folds
+   its non-blocking ones once, after step 4, ledgered as above with no re-run;
+   the CI review judges that fold.
 6. **Run each must-run item** REVIEW.md lists that the change touches, on that
    final head, and write its result into the PR body as the item asks, its
    exit code as observed, never through a pipe.
 7. **Disposition** each finding in its thread once the PR is open, opening one
-   for a local finding CI has no thread for, then reply with the fix or the
-   refutation and resolve it:
+   for a local finding no local re-run found fixed, then reply with the fix or
+   the refutation and resolve it:
 
    ```sh
    pr=<number>; head=$(gh pr view $pr --json headRefOid -q .headRefOid)
