@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <em>Your AI coding agents, visualized as pixel-art coworkers in a terminal office.</em><br />
+  <em>A cozy pixel office where your AI coding agents come to life.</em><br />
   <sub><b>pix</b>el + <b>tu</b>i + (agent-)<b>oid</b></sub>
 </p>
 
@@ -23,9 +23,13 @@
 Every running agent session gets a desk: it types while it works, raises a `?` when it needs you, and dozes off when it's done. Claude Code, Codex, Copilot CLI, Cursor, opencode and the rest share one office you can watch at a glance.
 
 ```bash
-brew install pixtuoid    # or: npm install -g pixtuoid
+brew install pixtuoid
 pixtuoid
 ```
+
+More ways to install are on the [install guide ↗](https://pixtuoid.dev/#install).
+
+The office plays [pixtuoid/lofi](https://github.com/pixtuoid/lofi): procedural lofi in Rust, where a seed composes each song with no samples.
 
 <p align="center">
   <a href="https://github.com/pixtuoid/pixtuoid"><b>Repository</b></a>
@@ -33,4 +37,5 @@ pixtuoid
   &nbsp;·&nbsp; <a href="https://pixtuoid.dev/architecture">Architecture</a>
   &nbsp;·&nbsp; <a href="https://pixtuoid.dev/config">Configuration</a>
   &nbsp;·&nbsp; <a href="https://pixtuoid.dev/contributing">Contributing</a>
+  &nbsp;·&nbsp; <a href="https://discord.gg/hCGX8WRggN">Discord</a>
 </p>
