@@ -7,9 +7,9 @@ description: "Runs the org's review locally at either scope: a DIFF review (the 
 
 Every rule is the repo's `AGENTS.md` and `REVIEW.md`, or the shared review's
 contract; fill each brief from them, never from a paraphrase here. When this
-runs is the repo's `AGENTS.md`'s to say. The CI review reports one run's
-findings at a time and each push re-runs it, so running it here first folds
-them into one commit.
+runs is the org rules' **Local review** bullet, in every repo's `AGENTS.md`.
+The CI review reports one run's findings at a time and each push re-runs it,
+so running it here first folds them into one commit.
 
 ## Diff scope
 
@@ -25,10 +25,11 @@ them into one commit.
    `verifier` prompts and models verbatim from the shared workflow CI runs
    (`gh api -H 'Accept: application/vnd.github.raw' repos/pixtuoid/.github/contents/.github/workflows/claude-review.yml`),
    with these overrides:
-   - the scope is the whole `<base>...<head>` diff on a first run and step 5's
-     on a re-run, read with local read-only tools: `git diff <base>...<head>`,
-     the worktree's files, and `gh pr view <number> --json title,body` or the
-     planned title and body;
+   - the scope is the units the workflow's `scope` and `diff` steps give
+     `<head>`, a complete local run on this change counting as one of the
+     reviews they replay; read with local read-only tools:
+     `git diff <base>...<head>`, the worktree's files, and
+     `gh pr view <number> --json title,body` or the planned title and body;
    - the rules are step 2's;
    - on an open PR, every review comment, resolved or not, as CI reads them
      (`gh api --paginate repos/{owner}/{repo}/pulls/<number>/comments`), so a
@@ -39,7 +40,7 @@ them into one commit.
      `$(git rev-parse --git-common-dir)/local-review/<branch>.md`: one refuted
      there never returns, and one marked fixed is a recheck, given to its
      verifier with the fold's sha as CI's is given its replies, so a fold that
-     left the defect can't end step 5's loop. Every worktree of the clone
+     left a blocking defect can't end step 5's loop. Every worktree of the clone
      shares that directory, so it outlives the worktree step 1 adds, and git
      never tracks what is inside it;
    - a reviewer may fetch the docs a best-practice question needs, which CI's
@@ -54,19 +55,18 @@ them into one commit.
    documents as deliberate, and answer it as the org rules' Review findings
    say.
 5. **Fold** the accepted findings into one commit, and append each kept
-   finding to the ledger with its disposition: the fold's sha or the
-   refutation. Then rerun steps 1–4 at that commit, scoped as the review
-   contract scopes a re-review ("every unit no earlier review of the current
-   base has judged, and each one new or changed since"): the hunks of
-   `<base>...<fold>` that `git diff <previous head> <fold>` touches, and the
-   whole diff again only once the base has changed.
-   Fold again until a re-run keeps no finding.
-6. **Run each must-run item** REVIEW.md lists that the change touches, on that
-   final head, and write its result into the PR body as the item asks, its
-   exit code as observed, never through a pipe.
-7. **Disposition** each finding in its thread once the PR is open, opening one
-   for a local finding CI has no thread for, then reply with the fix or the
-   refutation and resolve it:
+   finding to the ledger with the fold's sha or the refutation, and the rest of
+   its disposition as the org rules' Review findings say. While the fold fixes
+   a blocking finding, rerun steps 1–4 at it. The CI review judges a fold that
+   fixes none.
+6. **Name the head** this review ended on in the PR body once the PR's head is
+   that head, as the org rules' Local review bullet says, beside the result of
+   each must-run item REVIEW.md lists that the change touches, run on that head,
+   as the item asks: its exit code as observed, never through a pipe.
+7. **Disposition** each finding in its thread at that head, opening one for a
+   local finding that has no thread yet and no local re-run found fixed,
+   then reply with its disposition as the org rules' Review findings
+   say and resolve it:
 
    ```sh
    pr=<number>; head=$(gh pr view $pr --json headRefOid -q .headRefOid)
