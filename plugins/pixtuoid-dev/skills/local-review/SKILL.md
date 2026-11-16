@@ -25,8 +25,9 @@ so running it here first folds them into one commit.
    `verifier` prompts and models verbatim from the shared workflow CI runs
    (`gh api -H 'Accept: application/vnd.github.raw' repos/pixtuoid/.github/contents/.github/workflows/claude-review.yml`),
    with these overrides:
-   - the scope is the whole `<base>...<head>` diff on a first run and step 5's
-     on a re-run, read with local read-only tools: `git diff <base>...<head>`,
+   - the scope is the whole `<base>...<head>` diff before the PR's first
+     review, else step 5's, its `<previous head>` the last head a review
+     judged, read with local read-only tools: `git diff <base>...<head>`,
      the worktree's files, and `gh pr view <number> --json title,body` or the
      planned title and body;
    - the rules are step 2's;
@@ -54,8 +55,8 @@ so running it here first folds them into one commit.
    documents as deliberate, and answer it as the org rules' Review findings
    say.
 5. **Fold** the accepted findings into one commit, and append each kept
-   finding to the ledger with its disposition: the fold's sha or the
-   refutation. While the fold fixes a blocking finding, rerun steps 1–4 at it,
+   finding to the ledger with its disposition as the org rules' Review
+   findings say: the fold's sha or the refutation. While the fold fixes a blocking finding, rerun steps 1–4 at it,
    scoped as the review contract scopes a re-review: the hunks of
    `<base>...<fold>` that `git diff <previous head> <fold>` touches, and the
    whole diff again only once the base has changed. The CI review judges a
@@ -65,7 +66,8 @@ so running it here first folds them into one commit.
    exit code as observed, never through a pipe.
 7. **Disposition** each finding in its thread once the PR is open, opening one
    for a local finding that CI has no thread for and no local re-run found
-   fixed, then reply with the fix or the refutation and resolve it:
+   fixed, then reply with its disposition as the org rules' Review findings
+   say and resolve it:
 
    ```sh
    pr=<number>; head=$(gh pr view $pr --json headRefOid -q .headRefOid)
