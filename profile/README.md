@@ -23,9 +23,11 @@
 Every running agent session gets a desk: it types while it works, raises a `?` when it needs you, and dozes off when it's done. Claude Code, Codex, Copilot CLI, Cursor, opencode and the rest share one office you can watch at a glance.
 
 ```bash
-brew install pixtuoid    # or: npm install -g pixtuoid
+brew install pixtuoid
 pixtuoid
 ```
+
+More ways to install are on the [install guide ↗](https://pixtuoid.dev/#install).
 
 The office plays [pixtuoid/lofi](https://github.com/pixtuoid/lofi): procedural lofi in Rust, where a seed composes each song with no samples.
 
