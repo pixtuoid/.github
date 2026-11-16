@@ -30,9 +30,9 @@ so running it here first folds them into one commit.
      that `git diff <previous head> <head>` touches, `<previous head>` the last
      head a complete review judged (a CI review's head and `Blocking:` line are
      in `gh api --paginate repos/{owner}/{repo}/pulls/<number>/reviews`), and
-     the whole diff again only once the base has changed; read with local read-only tools: `git diff
-     <base>...<head>`, the worktree's files, and `gh pr view <number> --json
-     title,body` or the planned title and body;
+     the whole diff again only once the base has changed; read with local
+     read-only tools: `git diff <base>...<head>`, the worktree's files, and
+     `gh pr view <number> --json title,body` or the planned title and body;
    - the rules are step 2's;
    - on an open PR, every review comment, resolved or not, as CI reads them
      (`gh api --paginate repos/{owner}/{repo}/pulls/<number>/comments`), so a
@@ -64,7 +64,8 @@ so running it here first folds them into one commit.
    fixes none.
 6. **Run each must-run item** REVIEW.md lists that the change touches, on that
    final head, and write its result into the PR body as the item asks, its
-   exit code as observed, never through a pipe.
+   exit code as observed, never through a pipe, and the head this review ended
+   on as the org rules' Local review bullet says.
 7. **Disposition** each finding in its thread once the PR is open, opening one
    for a local finding that has no thread yet and no local re-run found fixed,
    then reply with its disposition as the org rules' Review findings
