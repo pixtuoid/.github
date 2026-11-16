@@ -26,10 +26,13 @@ so running it here first folds them into one commit.
    (`gh api -H 'Accept: application/vnd.github.raw' repos/pixtuoid/.github/contents/.github/workflows/claude-review.yml`),
    with these overrides:
    - the scope is the whole `<base>...<head>` diff on the change's first
-     review, else step 5's, with `<head>` for `<fold>` and `<previous head>`
-     the last head a complete review judged, read with local read-only tools: `git diff <base>...<head>`,
-     the worktree's files, and `gh pr view <number> --json title,body` or the
-     planned title and body;
+     review, else as the review contract scopes a re-review: the hunks of it
+     that `git diff <previous head> <head>` touches, `<previous head>` the last
+     head a complete review judged (a CI review's head and `Blocking:` line are
+     in `gh api --paginate repos/{owner}/{repo}/pulls/<number>/reviews`), and
+     the whole diff again only once the base has changed; read with local read-only tools: `git diff
+     <base>...<head>`, the worktree's files, and `gh pr view <number> --json
+     title,body` or the planned title and body;
    - the rules are step 2's;
    - on an open PR, every review comment, resolved or not, as CI reads them
      (`gh api --paginate repos/{owner}/{repo}/pulls/<number>/comments`), so a
@@ -56,17 +59,15 @@ so running it here first folds them into one commit.
    say.
 5. **Fold** the accepted findings into one commit, and append each kept
    finding to the ledger with the fold's sha or the refutation, and the rest of
-   its disposition as the org rules' Review findings say. While the fold fixes a blocking finding, rerun steps 1–4 at it,
-   scoped as the review contract scopes a re-review: the hunks of
-   `<base>...<fold>` that `git diff <previous head> <fold>` touches, and the
-   whole diff again only once the base has changed. The CI review judges a
-   fold that fixes none.
+   its disposition as the org rules' Review findings say. While the fold fixes
+   a blocking finding, rerun steps 1–4 at it. The CI review judges a fold that
+   fixes none.
 6. **Run each must-run item** REVIEW.md lists that the change touches, on that
    final head, and write its result into the PR body as the item asks, its
    exit code as observed, never through a pipe.
 7. **Disposition** each finding in its thread once the PR is open, opening one
-   for a local finding that CI has no thread for and no local re-run found
-   fixed, then reply with its disposition as the org rules' Review findings
+   for a local finding that has no thread yet and no local re-run found fixed,
+   then reply with its disposition as the org rules' Review findings
    say and resolve it:
 
    ```sh
