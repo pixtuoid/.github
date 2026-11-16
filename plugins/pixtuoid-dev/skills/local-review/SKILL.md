@@ -86,17 +86,17 @@ so running it here first folds them into one commit.
 
 ## Whole-codebase scope
 
-The tree, where what no diff shows lives: drift between docs and code,
-invariants eroded across PRs, debt that accreted, coverage gaps, orphaned
-surface. Fan out one finder per module or subsystem in AGENTS.md's map, one
-per invariant AGENTS.md names, and one per factor: the security threat model,
-concurrency and liveness, performance on hot paths, mutation depth on hot
-logic, silent failure, deep modules, the CI pipeline, and upkeep, the
-Proportion lens's "delete it" over every mechanism; then a system lens
-(decomposition, dependency directions) and a one-source census. Each
-`Pre-existing:` line the CI review summarized on a closed PR, merged or not,
-is a finding too, and one fixed since fails its skeptic like any other. Each
-finding's own skeptic tries to refute it by default, and a security or
+The tree at a freshly fetched `origin/main`, where what no diff shows lives:
+drift between docs and code, invariants eroded across PRs, debt that accreted,
+coverage gaps, orphaned surface. Fan out one finder per module or subsystem in
+AGENTS.md's map, one per invariant AGENTS.md names, and one per factor: the
+security threat model, concurrency and liveness, performance on hot paths,
+mutation depth on hot logic, silent failure, deep modules, the CI pipeline,
+and upkeep, the Proportion lens's "delete it" over every mechanism; then a
+system lens (decomposition, dependency directions) and a one-source census.
+Each `Pre-existing:` line the CI review summarized on a closed PR, merged or
+not, is a finding too, and one fixed since fails its skeptic like any other.
+Each finding's own skeptic tries to refute it by default, and a security or
 concurrency finding gets two or three differentiated ones, kept on a
 majority. Loop until two consecutive rounds come back empty, then ask which
 modality no round ran and run it. Dedup and rank the survivors for the owner,
