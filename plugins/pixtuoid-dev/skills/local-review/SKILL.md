@@ -25,9 +25,9 @@ so running it here first folds them into one commit.
    `verifier` prompts and models verbatim from the shared workflow CI runs
    (`gh api -H 'Accept: application/vnd.github.raw' repos/pixtuoid/.github/contents/.github/workflows/claude-review.yml`),
    with these overrides:
-   - the scope is the whole `<base>...<head>` diff before the PR's first
-     review, else step 5's, its `<previous head>` the last head a review
-     judged, read with local read-only tools: `git diff <base>...<head>`,
+   - the scope is the whole `<base>...<head>` diff on the change's first
+     review, else step 5's, with `<head>` for `<fold>` and `<previous head>`
+     the last head a complete review judged, read with local read-only tools: `git diff <base>...<head>`,
      the worktree's files, and `gh pr view <number> --json title,body` or the
      planned title and body;
    - the rules are step 2's;
@@ -55,8 +55,8 @@ so running it here first folds them into one commit.
    documents as deliberate, and answer it as the org rules' Review findings
    say.
 5. **Fold** the accepted findings into one commit, and append each kept
-   finding to the ledger with its disposition as the org rules' Review
-   findings say: the fold's sha or the refutation. While the fold fixes a blocking finding, rerun steps 1–4 at it,
+   finding to the ledger with the fold's sha or the refutation, and the rest of
+   its disposition as the org rules' Review findings say. While the fold fixes a blocking finding, rerun steps 1–4 at it,
    scoped as the review contract scopes a re-review: the hunks of
    `<base>...<fold>` that `git diff <previous head> <fold>` touches, and the
    whole diff again only once the base has changed. The CI review judges a
