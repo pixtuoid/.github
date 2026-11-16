@@ -25,14 +25,10 @@ so running it here first folds them into one commit.
    `verifier` prompts and models verbatim from the shared workflow CI runs
    (`gh api -H 'Accept: application/vnd.github.raw' repos/pixtuoid/.github/contents/.github/workflows/claude-review.yml`),
    with these overrides:
-   - the scope is the whole `<base>...<head>` diff on the change's first
-     review of its current base, else as the review contract scopes a
-     re-review: the hunks of it that `git diff <previous head> <head>` touches,
-     `<previous head>` the last head a complete review of the current base
-     judged (a CI review's head and `Blocking:` line are in
-     `gh api --paginate repos/{owner}/{repo}/pulls/<number>/reviews`, a base
-     change's time in its `issues/<number>/events`); read with local read-only
-     tools: `git diff <base>...<head>`, the worktree's files, and
+   - the scope is the units the workflow's `scope` and `diff` steps give
+     `<head>`, a complete local run on this change counting as one of the
+     reviews they replay; read with local read-only tools:
+     `git diff <base>...<head>`, the worktree's files, and
      `gh pr view <number> --json title,body` or the planned title and body;
    - the rules are step 2's;
    - on an open PR, every review comment, resolved or not, as CI reads them
