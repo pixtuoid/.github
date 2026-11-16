@@ -56,11 +56,10 @@ so running it here first folds them into one commit.
 5. **Fold** the accepted findings into one commit, and append each kept
    finding to the ledger with its disposition: the fold's sha or the
    refutation. While the fold fixes a blocking finding, rerun steps 1–4 at it,
-   scoped as the review contract scopes a re-review ("every unit no earlier
-   review of the current base has judged, and each one new or changed since"):
-   the hunks of `<base>...<fold>` that `git diff <previous head> <fold>`
-   touches, and the whole diff again only once the base has changed. The CI
-   review judges a fold that fixes none.
+   scoped as the review contract scopes a re-review: the hunks of
+   `<base>...<fold>` that `git diff <previous head> <fold>` touches, and the
+   whole diff again only once the base has changed. The CI review judges a
+   fold that fixes none.
 6. **Run each must-run item** REVIEW.md lists that the change touches, on that
    final head, and write its result into the PR body as the item asks, its
    exit code as observed, never through a pipe.
