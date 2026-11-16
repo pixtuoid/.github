@@ -7,9 +7,9 @@ description: "Runs the org's review locally at either scope: a DIFF review (the 
 
 Every rule is the repo's `AGENTS.md` and `REVIEW.md`, or the shared review's
 contract; fill each brief from them, never from a paraphrase here. When this
-runs is the repo's `AGENTS.md`'s to say. The CI review reports one run's
-findings at a time and each push re-runs it, so running it here first folds
-them into one commit.
+runs is the org rules' **Local review** bullet, in every repo's `AGENTS.md`.
+The CI review reports one run's findings at a time and each push re-runs it,
+so running it here first folds them into one commit.
 
 ## Diff scope
 
@@ -60,7 +60,9 @@ them into one commit.
    base has judged, and each one new or changed since"): the hunks of
    `<base>...<fold>` that `git diff <previous head> <fold>` touches, and the
    whole diff again only once the base has changed.
-   Fold again until a re-run keeps no finding.
+   Fold again until a re-run keeps no blocking finding. The non-blocking ones
+   that run kept go through step 4 into one last fold, ledgered as above with no
+   re-run, and the CI review judges that fold.
 6. **Run each must-run item** REVIEW.md lists that the change touches, on that
    final head, and write its result into the PR body as the item asks, its
    exit code as observed, never through a pipe.
