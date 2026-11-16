@@ -29,10 +29,10 @@ so running it here first folds them into one commit.
      review, else as the review contract scopes a re-review: the hunks of it
      that `git diff <previous head> <head>` touches, `<previous head>` the last
      head a complete review judged (a CI review's head and `Blocking:` line are
-     in `gh api --paginate repos/{owner}/{repo}/pulls/<number>/reviews`), and
-     the whole diff again only once the base has changed; read with local
-     read-only tools: `git diff <base>...<head>`, the worktree's files, and
-     `gh pr view <number> --json title,body` or the planned title and body;
+     in `gh api --paginate repos/{owner}/{repo}/pulls/<number>/reviews`); read
+     with local read-only tools: `git diff <base>...<head>`, the worktree's
+     files, and `gh pr view <number> --json title,body` or the planned title
+     and body;
    - the rules are step 2's;
    - on an open PR, every review comment, resolved or not, as CI reads them
      (`gh api --paginate repos/{owner}/{repo}/pulls/<number>/comments`), so a
@@ -62,12 +62,12 @@ so running it here first folds them into one commit.
    its disposition as the org rules' Review findings say. While the fold fixes
    a blocking finding, rerun steps 1–4 at it. The CI review judges a fold that
    fixes none.
-6. **Run each must-run item** REVIEW.md lists that the change touches, on that
-   final head, and write its result into the PR body as the item asks, its
-   exit code as observed, never through a pipe, and the head this review ended
-   on as the org rules' Local review bullet says.
-7. **Disposition** each finding in its thread once the PR is open, opening one
-   for a local finding that has no thread yet and no local re-run found fixed,
+6. **Name the head** this review ended on in the PR body once the PR's head is
+   that head, as the org rules' Local review bullet says, beside the result of
+   each must-run item REVIEW.md lists that the change touches, run on that head,
+   as the item asks: its exit code as observed, never through a pipe.
+7. **Disposition** each finding in its thread at that head, opening one for a
+   local finding that has no thread yet and no local re-run found fixed,
    then reply with its disposition as the org rules' Review findings
    say and resolve it:
 
